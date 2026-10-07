@@ -1,0 +1,45 @@
+{
+ "name": "large",
+ "version": 1,
+ "clip_revision": "8721e08cdeed711a131f1de6d2386d4985a06cae",
+ "runs": [
+  {
+   "laps": 5,
+   "lines": [
+    "center",
+    "line1",
+    "line3"
+   ],
+   "conditions": [
+    "sensors_low_steer_low",
+    "sensors_low_steer_medium",
+    "sensors_low_steer_high",
+    "sensors_medium_steer_low",
+    "sensors_medium_steer_medium",
+    "sensors_medium_steer_high",
+    "sensors_high_steer_low",
+    "sensors_high_steer_medium",
+    "sensors_high_steer_high"
+   ]
+  },
+  {
+   "clips": "accepted",
+   "conditions": [
+    "sensors_low_steer_low",
+    "sensors_low_steer_medium",
+    "sensors_low_steer_high",
+    "sensors_medium_steer_low",
+    "sensors_medium_steer_medium",
+    "sensors_medium_steer_high",
+    "sensors_high_steer_low",
+    "sensors_high_steer_medium",
+    "sensors_high_steer_high"
+   ]
+  }
+ ],
+ "seeds": [
+  0,
+  1,
+  2
+ ]
+}

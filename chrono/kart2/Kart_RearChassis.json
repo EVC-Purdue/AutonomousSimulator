@@ -1,0 +1,39 @@
+{
+  "Name": "Twister rear frame, motor, packs, seat",
+  "Type": "ChassisRear",
+  "Template": "RigidChassisRear",
+  "Components": [
+    {
+      "Centroidal Frame": {
+        "Location": [
+          0.3747834747964663,
+          0.0,
+          0.22390470292742073
+        ],
+        "Orientation": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "Mass": 115.46000000000001,
+      "Moments of Inertia": [
+        6.5,
+        6.5,
+        12.0
+      ],
+      "Products of Inertia": [
+        0,
+        0,
+        0
+      ],
+      "Void": false
+    }
+  ],
+  "Front Connector Location": [
+    0.55,
+    0.0,
+    0.055
+  ]
+}

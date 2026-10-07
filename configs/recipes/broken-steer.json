@@ -1,0 +1,12 @@
+{
+ "name": "broken-steer",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "worktree:/Users/shay/PycharmProjects/AutonomousKart-sim"
+ },
+ "params": {},
+ "sim": {
+  "invert_steer": true
+ },
+ "notes": "Canary: steering command inverted in AUTONOMOUS"
+}

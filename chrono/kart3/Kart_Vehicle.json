@@ -1,0 +1,69 @@
+{
+  "Name": "UPenn AV4EV Top Kart, steer-by-wire on the spade",
+  "Type": "Vehicle",
+  "Template": "WheeledVehicle",
+  "Chassis": {
+    "Input File": "kart3/Kart_FrontChassis.json"
+  },
+  "Rear Chassis": [
+    {
+      "Input File": "kart3/Kart_RearChassis.json",
+      "Connector Input File": "kart3/Kart_TorsionConnector.json",
+      "Chassis Index": -1
+    }
+  ],
+  "Axles": [
+    {
+      "Chassis Index": -1,
+      "Suspension Input File": "kart3/Kart_FrontCorner.json",
+      "Suspension Location": [
+        1.05,
+        0.0,
+        0.127
+      ],
+      "Steering Index": 0,
+      "Left Wheel Input File": "kart3/Kart_WheelFront.json",
+      "Right Wheel Input File": "kart3/Kart_WheelFront.json",
+      "Left Brake Input File": "kart3/Kart_NoBrake.json",
+      "Right Brake Input File": "kart3/Kart_NoBrake.json"
+    },
+    {
+      "Chassis Index": 0,
+      "Suspension Input File": "kart3/Kart_RearAxle.json",
+      "Suspension Location": [
+        0.0,
+        0.0,
+        0.13338366428571427
+      ],
+      "Left Wheel Input File": "kart3/Kart_WheelRear.json",
+      "Right Wheel Input File": "kart3/Kart_WheelRear.json",
+      "Left Brake Input File": "kart3/Kart_RearBrake.json",
+      "Right Brake Input File": "kart3/Kart_RearBrake.json"
+    }
+  ],
+  "Steering Subsystems": [
+    {
+      "Input File": "kart3/Kart_Column.json",
+      "Location": [
+        1.05,
+        0.0,
+        0.127
+      ],
+      "Orientation": [
+        1,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "Wheelbase": 1.05,
+  "Minimum Turning Radius": 3.1,
+  "Maximum Steering Angle (deg)": 30,
+  "Driveline": {
+    "Input File": "kart3/Kart_Driveline.json",
+    "Suspension Indexes": [
+      1
+    ]
+  }
+}

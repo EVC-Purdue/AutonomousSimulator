@@ -1,0 +1,20 @@
+{
+ "low": [
+  {
+   "path": "frame.torsion_scale",
+   "scale": 2.0
+  }
+ ],
+ "medium": [
+  {
+   "path": "frame.torsion_scale",
+   "scale": 1.0
+  }
+ ],
+ "high": [
+  {
+   "path": "frame.torsion_scale",
+   "scale": 0.5
+  }
+ ]
+}

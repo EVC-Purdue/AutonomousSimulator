@@ -1,0 +1,75 @@
+{
+  "Name": "Top Kart Twister 103/CH/17, Purdue EVC heavy",
+  "Type": "Vehicle",
+  "Template": "WheeledVehicle",
+  "Chassis": {
+    "Input File": "kart/Kart_FrontChassis.json"
+  },
+  "Rear Chassis": [
+    {
+      "Input File": "kart/Kart_RearChassis.json",
+      "Connector Input File": "kart/Kart_TorsionConnector.json",
+      "Chassis Index": -1
+    }
+  ],
+  "Axles": [
+    {
+      "Chassis Index": -1,
+      "Suspension Input File": "kart/Kart_FrontCorner.json",
+      "Suspension Location": [
+        1.05,
+        0.0,
+        0.127
+      ],
+      "Steering Index": 0,
+      "Left Wheel Input File": "kart/Kart_WheelFront.json",
+      "Right Wheel Input File": "kart/Kart_WheelFront.json",
+      "Left Brake Input File": "kart/Kart_NoBrake.json",
+      "Right Brake Input File": "kart/Kart_NoBrake.json"
+    },
+    {
+      "Chassis Index": 0,
+      "Suspension Input File": "kart/Kart_RearAxle.json",
+      "Suspension Location": [
+        0.0,
+        0.0,
+        0.13336093858831255
+      ],
+      "Left Wheel Input File": "kart/Kart_WheelRear.json",
+      "Right Wheel Input File": "kart/Kart_WheelRear.json",
+      "Left Brake Input File": "kart/Kart_RearBrake.json",
+      "Right Brake Input File": "kart/Kart_RearBrake.json"
+    }
+  ],
+  "Steering Subsystems": [
+    {
+      "Input File": "kart/Kart_Column.json",
+      "Location": [
+        1.05,
+        0.0,
+        0.127
+      ],
+      "Orientation": [
+        1,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "Corner Weights [lb]": {
+    "FL": 56.18,
+    "FR": 64.56,
+    "RL": 63.62,
+    "RR": 89.78
+  },
+  "Wheelbase": 1.05,
+  "Minimum Turning Radius": 3.1,
+  "Maximum Steering Angle (deg)": 30,
+  "Driveline": {
+    "Input File": "kart/Kart_Driveline.json",
+    "Suspension Indexes": [
+      1
+    ]
+  }
+}

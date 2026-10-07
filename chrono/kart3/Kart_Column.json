@@ -1,0 +1,35 @@
+{
+  "Name": "Twister column and double spade, worm-drive stepper 1:1",
+  "Type": "Steering",
+  "Template": "RotaryArm",
+  "Pitman Arm": {
+    "Mass": 1.5,
+    "Inertia": [
+      0.03,
+      0.03,
+      0.002
+    ],
+    "Inertia Products": [
+      0,
+      0,
+      0
+    ],
+    "Radius": 0.009,
+    "Axis of Rotation": [
+      -1.0,
+      0.0,
+      0.0
+    ],
+    "Point of Rotation": [
+      -0.06500000000000006,
+      0.0,
+      0.04300000000000001
+    ],
+    "Point to Draglink": [
+      -0.06500000000000006,
+      0.014,
+      -0.006999999999999992
+    ],
+    "Maximum Angle (deg)": 70.0
+  }
+}

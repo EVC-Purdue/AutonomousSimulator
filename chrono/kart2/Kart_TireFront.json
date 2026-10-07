@@ -1,0 +1,85 @@
+{
+  "Name": "10x4.50-5 slick",
+  "Type": "Tire",
+  "Template": "TMeasyTire",
+  "Design": {
+    "Unloaded Radius [m]": 0.127,
+    "Mass [kg]": 2.1,
+    "Inertia [kg.m2]": [
+      0.012858956250000001,
+      0.021169312500000002,
+      0.012858956250000001
+    ],
+    "Width [m]": 0.114,
+    "Rim Radius [m]": 0.0635
+  },
+  "Coefficient of Friction": 0.91,
+  "Rolling Resistance Coefficient": 0.0,
+  "Parameters": {
+    "Vertical": {
+      "Nominal Vertical Force [N]": 279.585,
+      "Vertical Tire Stiffness [N/m]": 100000.0,
+      "Tire Vertical Damping [Ns/m]": 1400.0,
+      "Tire Bottoming Radius [m]": 0.0735,
+      "Tire Bottoming Stiffness [N/m]": 1000000.0
+    },
+    "Longitudinal": {
+      "Initial Slopes dFx/dsx [N]": [
+        13339.741473319034,
+        22719.348124235974
+      ],
+      "Maximum Fx Load [N]": [
+        254.42235000000002,
+        490.06798296560646
+      ],
+      "Sliding Fx Load [N]": [
+        216.25899750000002,
+        416.5577855207655
+      ],
+      "Slip sx at Maximum Fx": [
+        0.09621560837180922,
+        0.12342116936020944
+      ],
+      "Slip sx where sliding begins": [
+        0.5,
+        0.5
+      ]
+    },
+    "Lateral": {
+      "Initial Slopes dFy/dsy [N]": [
+        8290.061811317659,
+        12187.042961706877
+      ],
+      "Maximum Fy Load [N]": [
+        254.42235,
+        490.0679829656064
+      ],
+      "Sliding Fy Load [N]": [
+        216.2589975,
+        416.55778552076544
+      ],
+      "Slip sy at Maximum Fy": [
+        0.18144458573022307,
+        0.2077299330304638
+      ],
+      "Slip sy where sliding begins": [
+        0.6,
+        0.6
+      ]
+    },
+    "Aligning": {
+      "Normalized Trail at Zero Slip sy": [
+        0.17,
+        0.17
+      ],
+      "Slip sy where Trail Changes Sign": [
+        0.15,
+        0.15
+      ],
+      "Slip sy where Trail Tends to Zero": [
+        0.6,
+        0.6
+      ]
+    }
+  }
+}

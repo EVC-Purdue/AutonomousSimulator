@@ -218,3 +218,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local working docs
+docs/superpowers/
+claude.md
+
+# Generated clip candidates and review labels
+data/clip_candidates/
+data/ttc/
+.playwright-mcp/
+.superpowers/
+results/
+data/clips/
+data/noise/raw/

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block body %}
+<div class="jobs">
+  <aside class="list">
+    <div class="list-head" id="list-head">
+      <input type="search" id="filter" placeholder="Filter" aria-label="Filter jobs">
+      <button class="btn dark" id="compare" type="button" hidden></button>
+      <button class="x" id="clear" type="button" aria-label="Clear selection" hidden>&times;</button>
+    </div>
+    <div class="list-filt">
+      <div class="seg" id="ftier"><button type="button" data-v="" class="on">all</button><button type="button" data-v="smoke">smoke</button><button type="button" data-v="dev">dev</button><button type="button" data-v="large">large</button></div>
+      <select id="fwhere" aria-label="Where"><option value="">all</option><option value="local">local</option><option value="modal">modal</option><option value="modal-gpu">modal gpu</option><option value="gautschi">gautschi</option><option value="gautschi-gpu">gautschi gpu</option></select>
+    </div>
+    <div id="rows"></div>
+  </aside>
+  <main id="main"></main>
+  <section class="panel" id="panel" hidden>
+    <div class="ph"><h2>New job</h2><button class="x" type="button" id="panel-close" aria-label="Close">&times;</button></div>
+    <form id="form" autocomplete="off" novalidate>
+      <div class="field" data-f="recipe_name"><label for="f-recipe">Recipe name</label>
+        <input type="text" id="f-recipe" list="recipes" spellcheck="false"><datalist id="recipes"></datalist></div>
+      <div class="field" data-f="ref"><label for="f-ref">Stack ref</label>
+        <input type="text" id="f-ref" list="refs" spellcheck="false" autocomplete="off"><datalist id="refs"></datalist></div>
+      <div class="field" data-f="params"><label for="f-params">Parameters</label>
+        <textarea id="f-params" spellcheck="false">{}</textarea></div>
+      <div class="seg2">
+        <div class="field" data-f="tier"><label>Tier</label>
+          <div class="seg" id="f-tier"><button type="button" data-v="smoke" class="on">smoke</button><button type="button" data-v="dev">dev</button><button type="button" data-v="large">large</button></div></div>
+        <div class="field" data-f="where"><label>Where</label>
+          <select id="f-where"><option value="local">local</option><option value="modal">modal</option><option value="modal-gpu">modal gpu</option><option value="gautschi">gautschi</option><option value="gautschi-gpu">gautschi gpu</option></select></div>
+      </div>
+      <div class="field" data-f="user"><label for="f-user">User</label><input type="text" id="f-user" spellcheck="false"></div>
+      <div class="field" data-f="notes"><label for="f-notes">Notes</label><input type="text" id="f-notes"></div>
+    </form>
+    <div class="pf"><div class="est"><span id="est-n"></span><span id="est-c"></span></div>
+      <button class="btn gold" id="submit" type="button">Submit</button></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/uPlot.iife.min.js') }}"></script>
+<script src="{{ url_for('static', filename='viewer.js') }}"></script>
+<script src="{{ url_for('static', filename='compare.js') }}"></script>
+<script src="{{ url_for('static', filename='jobs.js') }}"></script>
+{% endblock %}

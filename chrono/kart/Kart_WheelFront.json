@@ -1,0 +1,11 @@
+{
+  "Name": "Kart_WheelFront",
+  "Type": "Wheel",
+  "Template": "Wheel",
+  "Mass": 1.0,
+  "Inertia": [
+    0.004,
+    0.006,
+    0.004
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "Name": "Motenergy ME0708 on VESC",
+  "Type": "Engine",
+  "Template": "EngineSimple",
+  "Maximum Engine Torque": 23.735194535194537,
+  "Maximum Engine Power": 2987.32,
+  "Maximum Engine Speed": 393.28481308004785
+}

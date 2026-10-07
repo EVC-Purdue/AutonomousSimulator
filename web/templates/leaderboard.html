@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard, EVC Sim{% endblock %}
+{% block body %}
+<div class="board"><div class="filt lbbar"><select id="lb-tier" aria-label="Tier"></select></div><table class="lb" id="lb"><thead id="lb-head"></thead><tbody id="lb-body"></tbody></table></div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='leaderboard.js') }}"></script>
+{% endblock %}

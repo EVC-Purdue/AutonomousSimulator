@@ -1,0 +1,25 @@
+{
+  "Name": "Solid rear axle, chain",
+  "Type": "Driveline",
+  "Template": "ShaftsDriveline2WD",
+  "Shaft Direction": {
+    "Motor Block": [
+      0,
+      1,
+      0
+    ],
+    "Axle": [
+      0,
+      1,
+      0
+    ]
+  },
+  "Shaft Inertia": {
+    "Driveshaft": 0.056,
+    "Differential Box": 0.01
+  },
+  "Gear Ratio": {
+    "Conical Gear": 1.0
+  },
+  "Axle Differential Locking Limit": 100000.0
+}

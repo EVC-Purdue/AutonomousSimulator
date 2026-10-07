@@ -1,0 +1,10 @@
+numpy==1.26.4
+opencv-python-headless
+scipy
+python-can==4.6.1
+flask
+flask-cors
+pyserial
+smbus2
+joblib
+scikit-learn

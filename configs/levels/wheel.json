@@ -1,0 +1,32 @@
+{
+ "low": [
+  {
+   "path": "sensors.wheel.white_mps",
+   "set": 0.01
+  },
+  {
+   "path": "sensors.wheel.scale_error",
+   "set": 0.0
+  }
+ ],
+ "medium": [
+  {
+   "path": "sensors.wheel.white_mps",
+   "set": 0.03
+  },
+  {
+   "path": "sensors.wheel.scale_error",
+   "set": 0.01
+  }
+ ],
+ "high": [
+  {
+   "path": "sensors.wheel.white_mps",
+   "set": 0.08
+  },
+  {
+   "path": "sensors.wheel.scale_error",
+   "set": 0.033
+  }
+ ]
+}

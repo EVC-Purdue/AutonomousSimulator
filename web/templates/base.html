@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}EVC Sim{% endblock %}</title>
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='vendor/uPlot.min.css') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header class="top">
+  <nav>
+    <a href="/" class="{{ 'on' if page == 'jobs' }}">Jobs</a>
+    <a href="/leaderboard" class="{{ 'on' if page == 'leaderboard' }}">Leaderboard</a>
+  </nav>
+  <button class="btn gold" id="new-job" type="button">New job</button>
+</header>
+{% block body %}{% endblock %}
+<div class="tip" id="tip" hidden></div>
+<script src="{{ url_for('static', filename='util.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

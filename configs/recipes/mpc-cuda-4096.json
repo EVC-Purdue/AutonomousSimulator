@@ -1,0 +1,16 @@
+{
+ "name": "mpc-cuda-4096",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "worktree:/Users/shay/PycharmProjects/AutonomousKart-sim"
+ },
+ "params": {
+  "pathfinder_node": {
+   "mpc.num_samples": 4096
+  }
+ },
+ "sim": {
+  "cuda": true
+ },
+ "notes": "MPC on the CUDA kernel, 4096 samples (gautschi gpu only); kernel cost weights are compiled-in literals"
+}

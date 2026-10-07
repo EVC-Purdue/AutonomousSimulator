@@ -1,0 +1,56 @@
+{
+ "name": "kart1",
+ "chrono_dir": "chrono/kart",
+ "tyres": {
+  "grip": 1.0
+ },
+ "frame": {
+  "torsion_scale": 1.0
+ },
+ "steering_motor": {
+  "rate_dps": 140.0,
+  "travel_deg": 70.0,
+  "step_deg": 0.9,
+  "slop_deg": 0.0,
+  "center_offset_deg": 0.0,
+  "position_uncertainty_deg": 0.0
+ },
+ "actuator": {
+  "latency_ms": 0.0,
+  "drive_tau_s": 0.41,
+  "steer_latency_ms": 0.0
+ },
+ "sensors": {
+  "gps": {
+   "enabled": true,
+   "fix_chain": "measured",
+   "fixed_gm_sigma_m": 0.006,
+   "fixed_gm_tau_s": 7.0,
+   "fixed_white_m": 0.002,
+   "error_scale": 1.0,
+   "latency_ms": 60.0,
+   "rate_hz": 20.0,
+   "float_dwell_scale": 1.0,
+   "outages": false,
+   "wrong_fix": false,
+   "heading_source": "vtg"
+  },
+  "imu": {
+   "enabled": true,
+   "vibration_scale": 0.3,
+   "dlpf_hz": 0
+  },
+  "wheel": {
+   "white_mps": 0.03,
+   "scale_error": 0.01,
+   "rate_hz": 100.0
+  },
+  "steer_encoder": {
+   "enabled": false,
+   "resolution_deg": 0.35,
+   "white_deg": 0.2,
+   "rate_hz": 50.0
+  }
+ },
+ "system_frequency": 60
+}

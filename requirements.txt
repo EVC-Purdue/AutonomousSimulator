@@ -1,0 +1,10 @@
+flask
+numpy
+scipy
+matplotlib
+pytest
+jsonschema
+huggingface_hub
+playwright
+modal
+pyyaml

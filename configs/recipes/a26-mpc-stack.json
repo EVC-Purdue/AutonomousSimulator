@@ -1,0 +1,16 @@
+{
+ "name": "A26 MPC stack",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "worktree:/Users/shay/PycharmProjects/AutonomousKart-sim"
+ },
+ "params": {
+  "pathfinder_node": {
+   "mpc.num_samples": 32768
+  }
+ },
+ "sim": {
+  "cuda": true
+ },
+ "notes": "MPC on the CUDA kernel, 32768 samples (gautschi gpu only); kernel cost weights are compiled-in literals"
+}

@@ -1,0 +1,56 @@
+{
+ "low": [
+  {
+   "path": "steering_motor.rate_dps",
+   "scale": 1.0
+  },
+  {
+   "path": "steering_motor.slop_deg",
+   "add": 0.2
+  },
+  {
+   "path": "steering_motor.center_offset_deg",
+   "set": 0.0
+  },
+  {
+   "path": "steering_motor.position_uncertainty_deg",
+   "set": 0.5
+  }
+ ],
+ "medium": [
+  {
+   "path": "steering_motor.rate_dps",
+   "scale": 0.5
+  },
+  {
+   "path": "steering_motor.slop_deg",
+   "add": 5.0
+  },
+  {
+   "path": "steering_motor.center_offset_deg",
+   "set": 0.4
+  },
+  {
+   "path": "steering_motor.position_uncertainty_deg",
+   "set": 1.0
+  }
+ ],
+ "high": [
+  {
+   "path": "steering_motor.rate_dps",
+   "scale": 0.357
+  },
+  {
+   "path": "steering_motor.slop_deg",
+   "add": 10.0
+  },
+  {
+   "path": "steering_motor.center_offset_deg",
+   "set": 2.0
+  },
+  {
+   "path": "steering_motor.position_uncertainty_deg",
+   "set": 2.0
+  }
+ ]
+}

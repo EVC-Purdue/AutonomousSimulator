@@ -1,0 +1,6 @@
+{
+  "Name": "VESC regen, no mechanical brake",
+  "Type": "Brake",
+  "Template": "BrakeSimple",
+  "Maximum Torque": 20.81113636363636
+}

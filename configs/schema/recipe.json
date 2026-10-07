@@ -1,0 +1,38 @@
+{
+ "type": "object",
+ "required": [
+  "name",
+  "source",
+  "params",
+  "notes"
+ ],
+ "properties": {
+  "name": {
+   "type": "string",
+   "minLength": 1
+  },
+  "notes": {
+   "type": "string"
+  },
+  "params": {
+   "type": "object"
+  },
+  "source": {
+   "type": "object",
+   "required": [
+    "repo",
+    "ref"
+   ],
+   "properties": {
+    "repo": {
+     "type": "string"
+    },
+    "ref": {
+     "type": "string",
+     "minLength": 1
+    }
+   }
+  }
+ },
+ "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

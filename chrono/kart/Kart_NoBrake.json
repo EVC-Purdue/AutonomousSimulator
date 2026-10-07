@@ -1,0 +1,6 @@
+{
+  "Name": "no front brakes",
+  "Type": "Brake",
+  "Template": "BrakeSimple",
+  "Maximum Torque": 0.0
+}

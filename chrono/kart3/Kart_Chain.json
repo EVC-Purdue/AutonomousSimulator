@@ -1,0 +1,17 @@
+{
+  "Name": "15T/65T chain",
+  "Type": "Transmission",
+  "Template": "AutomaticTransmissionSimpleMap",
+  "Gear Box": {
+    "Reverse Gear Ratio": -0.23076923076923078,
+    "Forward Gear Ratios": [
+      0.23076923076923078
+    ],
+    "Shift Points Map RPM": [
+      [
+        0,
+        100000.0
+      ]
+    ]
+  }
+}

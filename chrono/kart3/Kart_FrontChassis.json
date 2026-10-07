@@ -1,0 +1,52 @@
+{
+  "Name": "Twister front frame",
+  "Type": "Chassis",
+  "Template": "RigidChassis",
+  "Components": [
+    {
+      "Centroidal Frame": {
+        "Location": [
+          0.85,
+          0.0,
+          0.1
+        ],
+        "Orientation": [
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "Mass": 12.0,
+      "Moments of Inertia": [
+        0.5,
+        0.17,
+        0.65
+      ],
+      "Products of Inertia": [
+        0,
+        0,
+        0
+      ],
+      "Void": false
+    }
+  ],
+  "Driver Position": {
+    "Location": [
+      0.4,
+      0.0,
+      0.4
+    ],
+    "Orientation": [
+      1,
+      0,
+      0,
+      0
+    ]
+  },
+  "Rear Connector Location": [
+    0.55,
+    0.0,
+    0.055
+  ]
+}

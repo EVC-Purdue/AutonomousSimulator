@@ -1,0 +1,14 @@
+{
+ "name": "pure-pursuit",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "worktree:/Users/shay/PycharmProjects/AutonomousKart-sim"
+ },
+ "params": {
+  "pathfinder_node": {
+   "planner": "pure_pursuit",
+   "mpc.num_samples": 128
+  }
+ },
+ "notes": "Pure pursuit"
+}

@@ -1,0 +1,14 @@
+*
+!harness
+!simnode
+!chrono
+!configs
+!tracks
+!data/noise/*.json
+!data/noise/*.npz
+!data/clips
+!docker/Dockerfile
+!docker/Dockerfile.base
+!docker/build_chrono.sh
+!docker/requirements-stack.txt
+**/__pycache__

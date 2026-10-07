@@ -1,0 +1,16 @@
+{
+ "name": "mpc-cuda-128",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "worktree:/Users/shay/PycharmProjects/AutonomousKart-sim"
+ },
+ "params": {
+  "pathfinder_node": {
+   "mpc.num_samples": 128
+  }
+ },
+ "sim": {
+  "cuda": true
+ },
+ "notes": "MPC on the CUDA kernel, 128 samples (gautschi gpu only); kernel cost weights are compiled-in literals"
+}

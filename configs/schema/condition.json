@@ -1,0 +1,86 @@
+{
+ "type": "object",
+ "required": [
+  "name",
+  "overrides"
+ ],
+ "properties": {
+  "name": {
+   "type": "string"
+  },
+  "overrides": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "path"
+    ],
+    "properties": {
+     "path": {
+      "type": "string"
+     }
+    },
+    "oneOf": [
+     {
+      "required": [
+       "set"
+      ],
+      "not": {
+       "anyOf": [
+        {
+         "required": [
+          "scale"
+         ]
+        },
+        {
+         "required": [
+          "add"
+         ]
+        }
+       ]
+      }
+     },
+     {
+      "required": [
+       "scale"
+      ],
+      "not": {
+       "anyOf": [
+        {
+         "required": [
+          "set"
+         ]
+        },
+        {
+         "required": [
+          "add"
+         ]
+        }
+       ]
+      }
+     },
+     {
+      "required": [
+       "add"
+      ],
+      "not": {
+       "anyOf": [
+        {
+         "required": [
+          "set"
+         ]
+        },
+        {
+         "required": [
+          "scale"
+         ]
+        }
+       ]
+      }
+     }
+    ]
+   }
+  }
+ },
+ "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clip Review</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1d1d1b; --muted: #77756f; --rule: #e3e1db;
+    --asphalt: #d9d7d0; --grass: #eef1e8; --line: #4b6cb7;
+    --ctx: #1f9d55; --roll: #d64545; --accent: #1d1d1b;
+    --c-oscillation: #8e44ad; --c-offset_aligned: #2f80ed; --c-misaligned_on_line: #e67e22;
+    --c-recoverable_failure: #c0392b; --c-lateral_slip: #0f9b8e; --c-none: #9a978f;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.4 ui-sans-serif, -apple-system, "Segoe UI", sans-serif; }
+  .app { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
+  aside { border-right: 1px solid var(--rule); background: var(--panel); display: flex; flex-direction: column; min-height: 0; }
+  .filters { padding: 12px; border-bottom: 1px solid var(--rule); display: grid; gap: 8px; }
+  .filters select { width: 100%; padding: 4px; font: inherit; }
+  .tally { padding: 8px 12px; border-bottom: 1px solid var(--rule); display: grid; gap: 4px; }
+  .tally div { display: flex; justify-content: space-between; }
+  .bar { height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; height: 100%; }
+  .list { overflow-y: auto; flex: 1; }
+  .item { padding: 6px 12px; border-bottom: 1px solid var(--rule); cursor: pointer; display: flex; gap: 8px; align-items: center; }
+  .item:hover { background: var(--bg); }
+  .item.sel { background: #ecebe6; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .item .st { margin-left: auto; color: var(--muted); font-size: 11px; }
+  main { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; }
+  header { padding: 10px 16px; border-bottom: 1px solid var(--rule); display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; }
+  .pill { padding: 2px 8px; border-radius: 10px; color: #fff; font-weight: 600; font-size: 12px; }
+  .meta { color: var(--muted); }
+  .views { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  #map { width: 100%; height: 100%; background: var(--grass); display: block; }
+  .side { border-left: 1px solid var(--rule); background: var(--panel); padding: 10px 12px; overflow-y: auto; }
+  .side canvas { width: 100%; height: 92px; display: block; margin-bottom: 4px; }
+  .side h3 { margin: 10px 0 2px; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  table.f { width: 100%; border-collapse: collapse; }
+  table.f td { padding: 2px 0; border-bottom: 1px solid var(--rule); }
+  table.f td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+  footer { border-top: 1px solid var(--rule); background: var(--panel); padding: 10px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 6px 12px; border: 1px solid var(--rule); background: var(--panel); border-radius: 6px; cursor: pointer; }
+  button:hover { border-color: var(--ink); }
+  button.acc { background: var(--ctx); color: #fff; border-color: var(--ctx); }
+  button.rej { background: var(--roll); color: #fff; border-color: var(--roll); }
+  kbd { font: 11px ui-monospace, monospace; color: var(--muted); }
+  button.acc kbd, button.rej kbd { color: inherit; opacity: .75; }
+  .legend { display: flex; gap: 12px; margin-left: auto; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 14px; height: 3px; margin-right: 4px; vertical-align: middle; background: var(--c); }
+  .decided { font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="filters">
+      <select id="fCls"></select>
+      <select id="fStatus">
+        <option value="todo">Unreviewed</option><option value="all">All</option>
+        <option value="accept">Accepted</option><option value="reject">Rejected</option>
+      </select>
+      <select id="fDay"></select>
+    </div>
+    <div class="tally" id="tally"></div>
+    <div class="list" id="list"></div>
+  </aside>
+  <main>
+    <header>
+      <h1 id="title">Loading</h1>
+      <span class="pill" id="pill"></span>
+      <span class="meta" id="meta"></span>
+      <span class="decided" id="decided"></span>
+      <div class="legend">
+        <span style="--c: var(--ctx)">context</span>
+        <span style="--c: var(--roll)">rollout</span>
+        <span style="--c: var(--line)">line</span>
+      </div>
+    </header>
+    <div class="views">
+      <svg id="map"></svg>
+      <div class="side">
+        <h3>Cross-track error (m)</h3><canvas id="pCte"></canvas>
+        <h3>Heading error (deg)</h3><canvas id="pHead"></canvas>
+        <h3>Steer command (deg)</h3><canvas id="pSteer"></canvas>
+        <h3>Yaw rate off line (deg/s)</h3><canvas id="pYaw"></canvas>
+        <h3>Sideslip (deg)</h3><canvas id="pSlip"></canvas>
+        <h3>At handoff</h3><table class="f" id="feats"></table>
+      </div>
+    </div>
+    <footer>
+      <button class="acc" id="bAcc">Accept <kbd>A</kbd></button>
+      <button class="rej" id="bRej">Reject <kbd>R</kbd></button>
+      <span class="meta">Accept as</span>
+      <span id="asBtns"></span>
+      <button id="bClear">Clear <kbd>U</kbd></button>
+      <span class="meta" style="margin-left:auto">
+        <kbd>J</kbd>/<kbd>K</kbd> next/prev &nbsp; <kbd>Z</kbd> zoom track
+      </span>
+    </footer>
+  </main>
+</div>
+<script>
+const NAMES = {oscillation: "Oscillation", offset_aligned: "Off line, aligned",
+  misaligned_on_line: "On line, misaligned", recoverable_failure: "Recoverable failure", lateral_slip: "Lateral slip", none: "None"};
+const TARGET = 20;
+let IDX, GEO, labels = {}, view = [], cur = -1, clip = null, zoomOut = false;
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const color = c => css("--c-" + c);
+
+async function boot() {
+  [IDX, GEO] = await Promise.all([fetch("/api/index").then(r => r.json()), fetch("/api/geometry").then(r => r.json())]);
+  labels = IDX.labels || {};
+  $("fCls").innerHTML = `<option value="all">All classes</option>` + IDX.classes.map(c => `<option value="${c}">${NAMES[c]}</option>`).join("");
+  $("fCls").value = "oscillation";
+  const days = [...new Set(IDX.clips.map(c => c.day))].sort();
+  $("fDay").innerHTML = `<option value="all">All days</option>` + days.map(d => `<option>${d}</option>`).join("");
+  $("asBtns").innerHTML = IDX.classes.filter(c => c !== "none").map((c, i) =>
+    `<button data-c="${c}" style="border-color:${color(c)}">${NAMES[c]} <kbd>${i + 1}</kbd></button>`).join(" ");
+  $("asBtns").onclick = e => { const b = e.target.closest("button"); if (b) decide("accept", b.dataset.c); };
+  for (const id of ["fCls", "fStatus", "fDay"]) $(id).onchange = () => refilter(true);
+  $("bAcc").onclick = () => decide("accept", clip.cls);
+  $("bRej").onclick = () => decide("reject", null);
+  $("bClear").onclick = () => decide("clear", null);
+  refilter(true);
+}
+
+function finalCls(c) { const l = labels[c.id]; return l && l.decision === "accept" ? l.cls : c.cls; }
+
+function refilter(jump) {
+  const fc = $("fCls").value, fs = $("fStatus").value, fd = $("fDay").value;
+  view = IDX.clips.filter(c => {
+    const l = labels[c.id];
+    if (fc !== "all" && finalCls(c) !== fc && c.cls !== fc) return false;
+    if (fd !== "all" && c.day !== fd) return false;
+    if (fs === "todo") return !l;
+    if (fs === "all") return true;
+    return l && l.decision === fs;
+  });
+  // September and October first, May after.
+  view.sort((a, b) => (a.day < "202609") - (b.day < "202609") || a.id.localeCompare(b.id));
+  renderList(); renderTally();
+  if (jump) select(view.length ? 0 : -1);
+}
+
+function renderTally() {
+  const acc = {}, tot = {};
+  for (const c of IDX.clips) { tot[c.cls] = (tot[c.cls] || 0) + 1; }
+  for (const [id, l] of Object.entries(labels)) if (l.decision === "accept") acc[l.cls] = (acc[l.cls] || 0) + 1;
+  $("tally").innerHTML = IDX.classes.filter(c => c !== "none").map(c => `
+    <div><span><span class="dot" style="display:inline-block;background:${color(c)}"></span> ${NAMES[c]}</span>
+    <span>${acc[c] || 0}/${TARGET} &middot; <span class="meta">${tot[c] || 0} cand.</span></span></div>
+    <div class="bar"><i style="width:${Math.min(100, 100 * (acc[c] || 0) / TARGET)}%;background:${color(c)}"></i></div>`).join("");
+}
+
+function renderList() {
+  $("list").innerHTML = view.map((c, i) => {
+    const l = labels[c.id];
+    const st = l ? (l.decision === "accept" ? "✓ " + (l.cls !== c.cls ? NAMES[l.cls] : "") : "✗") : "";
+    return `<div class="item${i === cur ? " sel" : ""}" data-i="${i}"><span class="dot" style="background:${color(c.cls)}"></span>${c.id}<span class="st">${st}</span></div>`;
+  }).join("") || `<div class="item meta">Nothing left in this filter.</div>`;
+  $("list").onclick = e => { const it = e.target.closest(".item"); if (it && it.dataset.i) select(+it.dataset.i); };
+}
+
+async function select(i) {
+  cur = i;
+  [...$("list").children].forEach((el, k) => el.classList.toggle("sel", k === i));
+  if (i < 0) { $("title").textContent = "No clips"; clip = null; return; }
+  $("list").children[i]?.scrollIntoView({block: "nearest"});
+  clip = await fetch("/api/clip/" + view[i].id).then(r => r.json());
+  draw();
+}
+
+function draw() {
+  const c = clip, l = labels[c.id];
+  $("title").textContent = c.id;
+  $("pill").textContent = NAMES[c.cls]; $("pill").style.background = color(c.cls);
+  $("meta").textContent = `${c.run.split("__").pop()} · ${c.planner || "planner ?"} · ${c.line} (fit ${c.line_fit_m} m) · mode ${c.mode_src} · ctx ${c.handoff_t}s · roll ${(c.end_t - c.handoff_t).toFixed(1)}s`;
+  $("decided").textContent = l ? (l.decision === "accept" ? `Accepted as ${NAMES[l.cls]}` : "Rejected") : "";
+  $("decided").style.color = l ? (l.decision === "accept" ? css("--ctx") : css("--roll")) : "";
+  drawMap(); drawPlots();
+  const f = c.features;
+  $("feats").innerHTML = Object.entries(f).map(([k, v]) => `<tr><td>${k}</td><td>${v === null ? "-" : v}</td></tr>`).join("");
+}
+
+function drawMap() {
+  const s = clip.series, svg = $("map");
+  const W = svg.clientWidth, H = svg.clientHeight;
+  let xs = s.x, ys = s.y;
+  if (zoomOut) { xs = GEO.outer.map(p => p[0]); ys = GEO.outer.map(p => p[1]); }
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const pad = Math.max(6, 0.15 * Math.max(x1 - x0, y1 - y0));
+  x0 -= pad; x1 += pad; y0 -= pad; y1 += pad;
+  const k = Math.min(W / (x1 - x0), H / (y1 - y0));
+  const ox = (W - k * (x1 - x0)) / 2, oy = (H - k * (y1 - y0)) / 2;
+  const P = (x, y) => `${(ox + k * (x - x0)).toFixed(1)},${(H - oy - k * (y - y0)).toFixed(1)}`;
+  const poly = pts => pts.map(p => P(p[0], p[1])).join(" ");
+  const line = GEO.lines[clip.line] || [];
+  const h = s.t.findIndex(t => t >= 0);
+  const ctx = s.x.slice(0, h + 1).map((x, i) => P(x, s.y[i])).join(" ");
+  const roll = s.x.slice(h).map((x, i) => P(x, s.y[h + i])).join(" ");
+  const [hx, hy] = P(s.x[h], s.y[h]).split(",").map(Number);
+  const yaw = s.yaw[h], al = 22;
+  const ax = hx + al * Math.cos(yaw), ay = hy - al * Math.sin(yaw);
+  // Start of context and end of rollout get small ticks so direction of travel is readable.
+  const [sx, sy] = P(s.x[0], s.y[0]).split(",").map(Number);
+  const [ex, ey] = P(s.x[s.x.length - 1], s.y[s.y.length - 1]).split(",").map(Number);
+  svg.innerHTML = `
+    <polygon points="${poly(GEO.outer)}" fill="${css("--asphalt")}"/>
+    <polygon points="${poly(GEO.inner)}" fill="${css("--grass")}"/>
+    <polyline points="${poly(line.concat([line[0]]))}" fill="none" stroke="${css("--line")}" stroke-width="1.5" stroke-dasharray="5 4" opacity=".8"/>
+    <polyline points="${ctx}" fill="none" stroke="${css("--ctx")}" stroke-width="3" stroke-linejoin="round"/>
+    <polyline points="${roll}" fill="none" stroke="${css("--roll")}" stroke-width="3" stroke-linejoin="round"/>
+    <rect x="${sx - 3}" y="${sy - 3}" width="6" height="6" fill="${css("--ctx")}"/>
+    <path d="M${ex - 4},${ey - 4}L${ex + 4},${ey + 4}M${ex - 4},${ey + 4}L${ex + 4},${ey - 4}" stroke="${css("--roll")}" stroke-width="2"/>
+    <line x1="${hx}" y1="${hy}" x2="${ax}" y2="${ay}" stroke="${css("--ink")}" stroke-width="1.5"/>
+    <circle cx="${hx}" cy="${hy}" r="8" fill="none" stroke="${css("--ink")}" stroke-width="2.5"/>
+    <text x="12" y="${H - 12}" fill="${css("--muted")}" font-size="11">${(10).toFixed(0)} m</text>
+    <line x1="40" y1="${H - 16}" x2="${40 + 10 * k}" y2="${H - 16}" stroke="${css("--muted")}" stroke-width="2"/>`;
+}
+
+function plot(id, ys, sym) {
+  const cv = $(id), dpr = devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext("2d"); g.scale(dpr, dpr); g.clearRect(0, 0, W, H);
+  const t = clip.series.t, t0 = t[0], t1 = t[t.length - 1];
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (sym) { const a = Math.max(Math.abs(lo), Math.abs(hi), 1e-3); lo = -a; hi = a; }
+  if (hi - lo < 1e-6) { hi += 1; lo -= 1; }
+  const X = v => 28 + (W - 32) * (v - t0) / (t1 - t0), Y = v => 4 + (H - 8) * (hi - v) / (hi - lo);
+  g.strokeStyle = css("--rule"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(28, Y(0)); g.lineTo(W - 4, Y(0)); g.stroke();
+  g.strokeStyle = css("--ink"); g.beginPath(); g.moveTo(X(0), 2); g.lineTo(X(0), H - 2); g.stroke();
+  for (const [col, from, to] of [[css("--ctx"), t0, 0], [css("--roll"), 0, t1]]) {
+    g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); let on = false;
+    t.forEach((tt, i) => { if (tt < from || tt > to) return; on ? g.lineTo(X(tt), Y(ys[i])) : g.moveTo(X(tt), Y(ys[i])); on = true; });
+    g.stroke();
+  }
+  g.fillStyle = css("--muted"); g.font = "10px ui-sans-serif";
+  g.fillText(hi.toFixed(1), 0, 10); g.fillText(lo.toFixed(1), 0, H - 2);
+}
+
+function drawPlots() {
+  const s = clip.series;
+  plot("pCte", s.cte, true); plot("pHead", s.head_err, true); plot("pSteer", s.steer, true); plot("pYaw", s.yaw_dev, true); plot("pSlip", s.slip, true);
+}
+
+async function decide(decision, cls) {
+  if (!clip) return;
+  await fetch("/api/label", {method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({id: clip.id, decision, cls})});
+  if (decision === "clear") delete labels[clip.id];
+  else labels[clip.id] = {decision, cls};
+  const keepPos = cur;
+  refilter(false);
+  // In the unreviewed filter the clip just left the list, so the same index is the next clip.
+  const next = $("fStatus").value === "todo" ? keepPos : keepPos + 1;
+  select(Math.min(next, view.length - 1));
+}
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT") return;
+  const k = e.key.toLowerCase();
+  if (k === "a") decide("accept", clip.cls);
+  else if (k === "r") decide("reject", null);
+  else if (k === "u") decide("clear", null);
+  else if (k === "j" || e.key === "ArrowDown") select(Math.min(cur + 1, view.length - 1));
+  else if (k === "k" || e.key === "ArrowUp") select(Math.max(cur - 1, 0));
+  else if (k === "z") { zoomOut = !zoomOut; if (clip) drawMap(); }
+  else if ("12345".includes(k)) decide("accept", IDX.classes.filter(c => c !== "none")[+k - 1]);
+  else return;
+  e.preventDefault();
+});
+window.addEventListener("resize", () => clip && draw());
+boot();
+</script>
+</body>
+</html>

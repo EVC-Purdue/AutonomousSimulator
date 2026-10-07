@@ -1,0 +1,25 @@
+{
+ "name": "dev",
+ "version": 1,
+ "clip_revision": "8721e08cdeed711a131f1de6d2386d4985a06cae",
+ "runs": [
+  {
+   "laps": 1,
+   "lines": [
+    "center",
+    "line1",
+    "line3"
+   ],
+   "conditions": "all"
+  },
+  {
+   "clips": "accepted",
+   "conditions": [
+    "nominal"
+   ]
+  }
+ ],
+ "seeds": [
+  0
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "low": [
+  {
+   "path": "sensors.imu.vibration_scale",
+   "set": 0.1
+  },
+  {
+   "path": "sensors.imu.dlpf_hz",
+   "set": 44
+  }
+ ],
+ "medium": [
+  {
+   "path": "sensors.imu.vibration_scale",
+   "set": 0.3
+  },
+  {
+   "path": "sensors.imu.dlpf_hz",
+   "set": 0
+  }
+ ],
+ "high": [
+  {
+   "path": "sensors.imu.vibration_scale",
+   "set": 1.0
+  },
+  {
+   "path": "sensors.imu.dlpf_hz",
+   "set": 0
+  }
+ ]
+}

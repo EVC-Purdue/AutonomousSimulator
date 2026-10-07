@@ -1,0 +1,48 @@
+{
+ "low": [
+  {
+   "path": "sensors.gps.fix_chain",
+   "set": "always_fixed"
+  },
+  {
+   "path": "sensors.gps.latency_ms",
+   "set": 20.0
+  }
+ ],
+ "medium": [
+  {
+   "path": "sensors.gps.fix_chain",
+   "set": "measured"
+  },
+  {
+   "path": "sensors.gps.latency_ms",
+   "set": 60.0
+  }
+ ],
+ "high": [
+  {
+   "path": "sensors.gps.fix_chain",
+   "set": "measured"
+  },
+  {
+   "path": "sensors.gps.float_dwell_scale",
+   "set": 3.0
+  },
+  {
+   "path": "sensors.gps.outages",
+   "set": true
+  },
+  {
+   "path": "sensors.gps.error_scale",
+   "set": 2.0
+  },
+  {
+   "path": "sensors.gps.latency_ms",
+   "set": 150.0
+  },
+  {
+   "path": "sensors.gps.wrong_fix",
+   "set": true
+  }
+ ]
+}

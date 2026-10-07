@@ -1,0 +1,44 @@
+{
+ "low": [
+  {
+   "path": "actuator.latency_ms",
+   "add": 80.0
+  },
+  {
+   "path": "actuator.steer_latency_ms",
+   "add": 20.0
+  },
+  {
+   "path": "actuator.drive_tau_s",
+   "scale": 0.375
+  }
+ ],
+ "medium": [
+  {
+   "path": "actuator.latency_ms",
+   "add": 240.0
+  },
+  {
+   "path": "actuator.steer_latency_ms",
+   "add": 60.0
+  },
+  {
+   "path": "actuator.drive_tau_s",
+   "scale": 1.0
+  }
+ ],
+ "high": [
+  {
+   "path": "actuator.latency_ms",
+   "add": 600.0
+  },
+  {
+   "path": "actuator.steer_latency_ms",
+   "add": 150.0
+  },
+  {
+   "path": "actuator.drive_tau_s",
+   "scale": 2.5
+  }
+ ]
+}

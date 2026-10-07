@@ -1,0 +1,65 @@
+{
+ "name": "grip_low",
+ "overrides": [
+  {
+   "path": "steering_motor.rate_dps",
+   "scale": 0.5
+  },
+  {
+   "path": "steering_motor.slop_deg",
+   "add": 5.0
+  },
+  {
+   "path": "steering_motor.center_offset_deg",
+   "set": 0.4
+  },
+  {
+   "path": "steering_motor.position_uncertainty_deg",
+   "set": 1.0
+  },
+  {
+   "path": "sensors.gps.fix_chain",
+   "set": "measured"
+  },
+  {
+   "path": "sensors.gps.latency_ms",
+   "set": 60.0
+  },
+  {
+   "path": "sensors.imu.vibration_scale",
+   "set": 0.3
+  },
+  {
+   "path": "sensors.imu.dlpf_hz",
+   "set": 0
+  },
+  {
+   "path": "sensors.wheel.white_mps",
+   "set": 0.03
+  },
+  {
+   "path": "sensors.wheel.scale_error",
+   "set": 0.01
+  },
+  {
+   "path": "actuator.latency_ms",
+   "add": 240.0
+  },
+  {
+   "path": "actuator.steer_latency_ms",
+   "add": 60.0
+  },
+  {
+   "path": "actuator.drive_tau_s",
+   "scale": 1.0
+  },
+  {
+   "path": "tyres.grip",
+   "scale": 1.1
+  },
+  {
+   "path": "frame.torsion_scale",
+   "scale": 1.0
+  }
+ ]
+}

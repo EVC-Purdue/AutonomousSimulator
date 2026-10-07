@@ -1,0 +1,24 @@
+{
+ "type": "object",
+ "required": [
+  "name",
+  "chrono_dir",
+  "tyres",
+  "frame",
+  "steering_motor",
+  "actuator",
+  "sensors",
+  "system_frequency"
+ ],
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "properties": {
+  "actuator": {
+   "type": "object",
+   "required": [
+    "latency_ms",
+    "drive_tau_s",
+    "steer_latency_ms"
+   ]
+  }
+ }
+}

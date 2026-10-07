@@ -1,0 +1,95 @@
+{
+  "Name": "Twister front corner",
+  "Type": "Suspension",
+  "Template": "GenericWheeledSuspension",
+  "Vehicle-Frame Inertia": false,
+  "Independent": true,
+  "Steerable": true,
+  "Camber Angle (deg)": 0,
+  "Toe Angle (deg)": -0.2819651425926433,
+  "Spindle": {
+    "Attachment Body": "Upright",
+    "Mass": 0.7,
+    "COM": [
+      0.0,
+      0.5349999999999999,
+      0.0
+    ],
+    "Inertia": [
+      0.0006,
+      0.001,
+      0.0006
+    ],
+    "Radius": 0.0125,
+    "Width": 0.1
+  },
+  "Bodies": [
+    {
+      "Name": "Upright",
+      "Mirrored": true,
+      "Position": [
+        0.01475000000000004,
+        0.43739999999999996,
+        0.0
+      ],
+      "Rotation": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "Mass": 0.72,
+      "Moments of Inertia": [
+        0.002,
+        0.0005,
+        0.002
+      ],
+      "Products of Inertia": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "Joints": [
+    {
+      "Name": "Kingpin",
+      "Type": "Revolute",
+      "Mirrored": true,
+      "Body1": "Chassis",
+      "Body2": "Upright",
+      "Position": [
+        0.02950000000000008,
+        0.3398,
+        0.0
+      ],
+      "Rotation": [
+        0.9934785475938734,
+        0.09085253578033109,
+        -0.06889261363202442,
+        0.0
+      ]
+    }
+  ],
+  "Distance Constraints": [
+    {
+      "Name": "Tierod",
+      "Mirrored": true,
+      "Body1": "Steering",
+      "Body2": "Upright",
+      "Point1": [
+        -0.05239513606237489,
+        0.014,
+        -0.026944408637055425
+      ],
+      "Point2": [
+        -0.09049543076770039,
+        0.34084718425980487,
+        -0.009999999999999995
+      ]
+    }
+  ],
+  "Axle": {
+    "Inertia": 0.001
+  }
+}
