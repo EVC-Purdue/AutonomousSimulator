@@ -1,6 +1,6 @@
 """Reference lines, Frenet projection and the track boundary, all in local ENU metres."""
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -65,6 +65,24 @@ def load_line(name):
     sx, sy = xy[:, 0], xy[:, 1]
     spsi = np.unwrap(np.arctan2(np.roll(sy, -1) - np.roll(sy, 1), np.roll(sx, -1) - np.roll(sx, 1)))
     return Line(name, d["s_m"], x, y, psi, d["kappa_radpm"], d["vx_mps"], length, sx, sy, ss, spsi)
+
+
+def cap_speed(line, cap):
+    """Speed cap: vx scaled so its maximum equals cap, shape kept; a constant-speed line becomes that constant."""
+    return replace(line, vx=line.vx * (cap / float(np.max(line.vx))))
+
+
+def write_capped(src, dst, cap):
+    """Copies a line CSV with vx_mps scaled as in cap_speed and ax_mps2 (v dv/ds) by the factor squared; other fields verbatim."""
+    rows = Path(src).read_text().splitlines()
+    head = rows[0].split(",")
+    iv, ia = head.index("vx_mps"), head.index("ax_mps2")
+    body = [r.split(",") for r in rows[1:] if r.strip()]
+    k = cap / max(float(c[iv]) for c in body)
+    for c in body:
+        c[iv], c[ia] = f"{float(c[iv]) * k:.4f}", f"{float(c[ia]) * k * k:.4f}"
+    Path(dst).write_text("\n".join([rows[0]] + [",".join(c) for c in body]) + "\n")
+    return dst
 
 
 def frenet(line, x, y):

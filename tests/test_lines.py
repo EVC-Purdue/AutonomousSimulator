@@ -22,7 +22,7 @@ def test_frenet_on_line_is_zero_and_left_positive():
 
 def test_lines_on_track_and_far_point_off():
     T = lines.load_track()
-    for n in ("center", "line1", "line3"):
+    for n in ("center", "line1", "line4"):
         L = lines.load_line(n)
         assert T.on_track(L.x, L.y).mean() > 0.98  # line3 clips apexes: 0.6% of its points off the KML chords, 1.3% off the spline
     assert not T.on_track(np.array([1e4]), np.array([1e4]))[0]

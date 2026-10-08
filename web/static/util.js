@@ -71,22 +71,23 @@ const U = (() => {
     }
   }
   const COLORS = ["#000000", "#CFB991", "#4A6FA5", "#2E8B7A", "#B5651D"];
-  const SLICE = ["kart", "line", "condition", "cls"];
+  const SLICE = ["kart", "line", "condition", "cls", "cap"];
   const sliceQuery = (sl) => SLICE.filter((k) => sl[k]).map((k) => `&${k}=${encodeURIComponent(sl[k])}`).join("");
   const condLabel = (conds, n) => { const c = conds.find((x) => x.name === n); return c ? (c.level ? `${c.group} ${c.level}` : c.group) : human(n); };
   function sliceText(sl, conds) {
     return [sl.kart && sl.kart !== "worst" ? kart(sl.kart) : "", sl.line || "", sl.condition ? condLabel(conds, sl.condition) : "",
-      sl.cls ? human(sl.cls) : ""].filter(Boolean).join(" · ");
+      sl.cls ? human(sl.cls) : "", sl.cap ? `≤${sl.cap} m/s` : ""].filter(Boolean).join(" · ");
   }
   function filters(opts, sl, conds, onChange) {
     const order = { condition: conds.map((c) => c.name), cls: ["offset_aligned", "misaligned_on_line", "oscillation", "recoverable_failure"] };
-    const all = { kart: "All karts", line: "All lines", condition: "All conditions", cls: "All classes" };
-    const label = { kart: (v) => (v === "worst" ? "Worst kart" : kart(v)), line: (v) => v, condition: (v) => condLabel(conds, v), cls: human };
+    const all = { kart: "All karts", line: "All lines", condition: "All conditions", cls: "All classes", cap: "All speeds" };
+    const label = { kart: (v) => (v === "worst" ? "Worst kart" : kart(v)), line: (v) => v, condition: (v) => condLabel(conds, v), cls: human, cap: (v) => `≤${v} m/s` };
     const bar = h("div", { class: "filt" });
     for (const k of SLICE) {
       const o = opts[k] || {};
       const rank = (v) => (order[k] && order[k].includes(v) ? order[k].indexOf(v) : 999);
-      const vals = Object.keys(o).sort((a, b) => rank(a) - rank(b));
+      const vals = Object.keys(o).sort((a, b) => rank(a) - rank(b) || (k === "cap" ? a - b : 0));
+      if (k === "cap" && !vals.length && !sl[k]) continue;   // only speed-capped jobs show the speed filter
       if (sl[k] && !vals.includes(sl[k])) vals.push(sl[k]);
       const sel = h("select", { "aria-label": all[k], "data-f": k, class: sl[k] ? "on" : "" }, h("option", { value: "", text: all[k] }),
         vals.map((v) => h("option", { value: v, text: label[k](v), disabled: o[v] === false && sl[k] !== v })));
@@ -96,7 +97,9 @@ const U = (() => {
     }
     return bar;
   }
-  return { h, num, pct, METRICS, unsafeText, rel, dur, date, shortRef, kart, human, CAUSE, tip, api, COLORS, SLICE, sliceQuery, sliceText, filters };
+  // lap columns: known lines in order, then any others (speed caps as line@cap) in natural order
+  const lineKeys = (known, present) => { const p = new Set(present); return known.filter((l) => p.has(l)).concat([...p].filter((l) => !known.includes(l)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))); };
+  return { lineKeys, h, num, pct, METRICS, unsafeText, rel, dur, date, shortRef, kart, human, CAUSE, tip, api, COLORS, SLICE, sliceQuery, sliceText, filters };
 })();
 
 document.getElementById("new-job").addEventListener("click", () => {

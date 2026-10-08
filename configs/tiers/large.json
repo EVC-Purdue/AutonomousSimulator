@@ -1,6 +1,6 @@
 {
  "name": "large",
- "version": 1,
+ "version": 3,
  "clip_revision": "8721e08cdeed711a131f1de6d2386d4985a06cae",
  "runs": [
   {
@@ -8,38 +8,92 @@
    "lines": [
     "center",
     "line1",
-    "line3"
+    "line3_less_aggressive"
+   ],
+   "speed_caps": [
+    6,
+    8,
+    10
+   ],
+   "karts": [
+    "kart1",
+    "kart2",
+    "kart3"
    ],
    "conditions": [
-    "sensors_low_steer_low",
-    "sensors_low_steer_medium",
-    "sensors_low_steer_high",
-    "sensors_medium_steer_low",
-    "sensors_medium_steer_medium",
-    "sensors_medium_steer_high",
-    "sensors_high_steer_low",
-    "sensors_high_steer_medium",
-    "sensors_high_steer_high"
+    "steer_low_kart_low_sensors_low",
+    "steer_low_kart_low_sensors_medium",
+    "steer_low_kart_low_sensors_high",
+    "steer_low_kart_medium_sensors_low",
+    "steer_low_kart_medium_sensors_medium",
+    "steer_low_kart_medium_sensors_high",
+    "steer_low_kart_high_sensors_low",
+    "steer_low_kart_high_sensors_medium",
+    "steer_low_kart_high_sensors_high",
+    "steer_medium_kart_low_sensors_low",
+    "steer_medium_kart_low_sensors_medium",
+    "steer_medium_kart_low_sensors_high",
+    "steer_medium_kart_medium_sensors_low",
+    "steer_medium_kart_medium_sensors_medium",
+    "steer_medium_kart_medium_sensors_high",
+    "steer_medium_kart_high_sensors_low",
+    "steer_medium_kart_high_sensors_medium",
+    "steer_medium_kart_high_sensors_high",
+    "steer_high_kart_low_sensors_low",
+    "steer_high_kart_low_sensors_medium",
+    "steer_high_kart_low_sensors_high",
+    "steer_high_kart_medium_sensors_low",
+    "steer_high_kart_medium_sensors_medium",
+    "steer_high_kart_medium_sensors_high",
+    "steer_high_kart_high_sensors_low",
+    "steer_high_kart_high_sensors_medium",
+    "steer_high_kart_high_sensors_high"
    ]
   },
   {
    "clips": "accepted",
+   "speed_caps": [
+    6,
+    8,
+    10
+   ],
+   "karts": [
+    "kart1",
+    "kart2",
+    "kart3"
+   ],
    "conditions": [
-    "sensors_low_steer_low",
-    "sensors_low_steer_medium",
-    "sensors_low_steer_high",
-    "sensors_medium_steer_low",
-    "sensors_medium_steer_medium",
-    "sensors_medium_steer_high",
-    "sensors_high_steer_low",
-    "sensors_high_steer_medium",
-    "sensors_high_steer_high"
+    "steer_low_kart_low_sensors_low",
+    "steer_low_kart_low_sensors_medium",
+    "steer_low_kart_low_sensors_high",
+    "steer_low_kart_medium_sensors_low",
+    "steer_low_kart_medium_sensors_medium",
+    "steer_low_kart_medium_sensors_high",
+    "steer_low_kart_high_sensors_low",
+    "steer_low_kart_high_sensors_medium",
+    "steer_low_kart_high_sensors_high",
+    "steer_medium_kart_low_sensors_low",
+    "steer_medium_kart_low_sensors_medium",
+    "steer_medium_kart_low_sensors_high",
+    "steer_medium_kart_medium_sensors_low",
+    "steer_medium_kart_medium_sensors_medium",
+    "steer_medium_kart_medium_sensors_high",
+    "steer_medium_kart_high_sensors_low",
+    "steer_medium_kart_high_sensors_medium",
+    "steer_medium_kart_high_sensors_high",
+    "steer_high_kart_low_sensors_low",
+    "steer_high_kart_low_sensors_medium",
+    "steer_high_kart_low_sensors_high",
+    "steer_high_kart_medium_sensors_low",
+    "steer_high_kart_medium_sensors_medium",
+    "steer_high_kart_medium_sensors_high",
+    "steer_high_kart_high_sensors_low",
+    "steer_high_kart_high_sensors_medium",
+    "steer_high_kart_high_sensors_high"
    ]
   }
  ],
  "seeds": [
-  0,
-  1,
-  2
+  0
  ]
 }

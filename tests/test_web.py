@@ -214,7 +214,7 @@ def test_compare_mixed(client):
     names = [m["name"] for m in d["metrics"]]
     assert "cte_p90" in names and "recovery_rate" not in names
     assert all(len(m["values"]) == 5 and None not in m["values"] for m in d["metrics"])
-    assert set(d["laps"]) == {"nominal"} and set(d["laps"]["nominal"]["kart1"]) == {"center"}
+    assert set(d["laps"]) == {"nominal"} and set(d["laps"]["nominal"]["kart1"]) == {"center", "line1"}   # lines shared by dev and smoke
     assert d["clips"] == {} and list(d["conditions"]) == ["nominal"] and len(d["conditions"]["nominal"]) == 5
     two = c.get(f"/api/compare?ids={ids['pure-pursuit']},{ids['mpc-h60']}").get_json()
     assert "recovery_rate" in [m["name"] for m in two["metrics"]] and set(two["clips"]) == set(
@@ -231,7 +231,7 @@ def test_compare_slice(client):
     hd = [c.get(f"/api/jobs/{i}?kart=kart1&line=center").get_json()["headline"] for i in two]
     assert set(d["unsafe"]) == {"unsafe_lat", "unsafe_rate", "unsafe_travel", "unsafe_spin", "unsafe_off"}
     assert all(d["unsafe"][k] == [x[k]["value"] for x in hd] and None not in d["unsafe"][k] for k in d["unsafe"])
-    assert d["options"]["line"] == {"center": True, "line1": True, "line3": True} and not any(d["options"]["cls"].values())
+    assert d["options"]["line"] == {"center": True, "line1": True, "line4": True} and not any(d["options"]["cls"].values())
 
 
 def test_compare_cells(client):
@@ -286,7 +286,7 @@ def test_meta(client):
     c, ids = client
     m = c.get("/api/meta").get_json()
     assert {r["name"] for r in m["recipes"]} >= {"pure-pursuit", "stack-default"}
-    assert m["tiers"]["smoke"]["episodes"] == 3 + 4 * 3 and m["tiers"]["dev"]["episodes"] == 3 * 3 * 3 + 8 * 3
+    assert m["tiers"]["smoke"]["episodes"] == 3 * 3 + 4 * 3 * 3 and m["tiers"]["dev"]["episodes"] == 3 * 3 * 3 + 8 * 3
     assert m["tiers"]["dev"]["cost_usd"] > m["tiers"]["smoke"]["cost_usd"] > 0
     assert m["default_ref"].startswith("worktree:")
     assert m["tiers"]["dev"]["rows"] == 2 and m["tiers"]["smoke"]["rows"] == 2 and m["default_tier"] == "dev"

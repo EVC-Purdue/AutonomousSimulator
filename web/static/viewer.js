@@ -2,7 +2,7 @@
 const Viewer = (() => {
   const { h } = U;
   const NS = "http://www.w3.org/2000/svg";
-  const LINES = ["center", "line1", "line3"];
+  const LINES = ["center", "line1", "line4"];
   const V = { el: null, jobs: [], multi: false, idx: null, conds: [], onOpen: null, eps: [], ep: null, T: [], M: [], plots: [], proj: null, dots: [], ro: null };
   const api = { current: null, keys: [] };
   const COLOR_BY = {
@@ -50,7 +50,7 @@ const Viewer = (() => {
         });
       }
     }
-    return { laps, clips, classes, byKey, karts: [...karts].sort(), conds: condSet, lines: LINES.filter((l) => lineSet.has(l)) };
+    return { laps, clips, classes, byKey, karts: [...karts].sort(), conds: condSet, lines: U.lineKeys(LINES, lineSet) };
   }
 
   function keyFor(kart, cond, item) {

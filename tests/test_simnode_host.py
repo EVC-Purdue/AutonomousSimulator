@@ -87,6 +87,14 @@ def test_line_path_for_clip_lines():
     assert E.line_path("center", "/opt/sim") == "/opt/sim/tracks/center.csv"
 
 
+def test_stack_line_path_writes_capped_copy_only_under_a_cap(tmp_path):
+    from harness.config import ROOT
+    assert E.stack_line_path("line1", ROOT, str(tmp_path)) == E.line_path("line1", ROOT)   # no cap: the track file, as before
+    p = E.stack_line_path("line1@349e56c", ROOT, str(tmp_path), 8)
+    d = np.genfromtxt(p, delimiter=",", names=True)
+    assert p.startswith(str(tmp_path)) and d["vx_mps"].max() == 8.0 and d["vx_mps"].min() < 8.0
+
+
 def test_nmea_server_serves_lines_and_discards_client_writes():
     srv = NmeaServer(0)
     c = socket.create_connection(("127.0.0.1", srv.port))
@@ -421,7 +429,7 @@ def test_tick_reads_full_truth_only_where_it_is_used():
                                      rear_axle_speed=lambda: calls.append("axle") or 1.0)
     rt.motor = types.SimpleNamespace(step=lambda t: 0.0, rate_limited=False, travel_limited=False)
     rt.vesc = types.SimpleNamespace(step=lambda t, w: (w, 0.0))
-    rt.k_tick, rt.f, rt.step, rt.braked, rt.truth = 0, 60.0, 0, False, {"rear_axle_speed": 1.0}
+    rt.mult, rt.k_tick, rt.f, rt.step, rt.braked, rt.truth = 1, 0, 60.0, 0, False, {"rear_axle_speed": 1.0}
     rt.wall, rt.wait_max, rt.hb, rt.frames_total = {"physics": 0.0, "clock_and_sensors": 0.0, "wait_stack": 0.0}, 0.0, None, 0
     sensed, clocked = [], []
     rt._sense, rt._publish_clock = lambda tr: sensed.append(rt.step), lambda *a: clocked.append(rt.step)
@@ -429,6 +437,53 @@ def test_tick_reads_full_truth_only_where_it_is_used():
     rt._wait = lambda *a, **k: None
     rt.tick()
     assert rt.step == 34 and calls.count("full") == 17 and calls.count("axle") == 17 and len(sensed) == 17
+
+
+def _fake_tick_runtime(mult):
+    rt = object.__new__(E._Runtime)
+    rt.plant = types.SimpleNamespace(step=lambda *a: None, truth=lambda: {"rear_axle_speed": 1.0}, rear_axle_speed=lambda: 1.0)
+    rt.motor = types.SimpleNamespace(step=lambda t: 0.0, rate_limited=False, travel_limited=False)
+    rt.vesc = types.SimpleNamespace(step=lambda t, w: (w, 0.0))
+    rt.mult, rt.k_tick, rt.f, rt.step, rt.braked, rt.truth = mult, 0, 60.0 * mult, 0, False, {"rear_axle_speed": 1.0}
+    rt.wall, rt.wait_max, rt.hb, rt.frames_total = {"physics": 0.0, "clock_and_sensors": 0.0, "wait_stack": 0.0}, 0.0, None, 0
+    rt._sense, rt._publish_clock, rt.gps = lambda tr: None, lambda *a: None, types.SimpleNamespace(due=lambda t: False)
+    waits = []
+    rt._wait = lambda *a, **k: waits.append((rt.step, rt.k_tick))
+    return rt, waits
+
+
+def test_tick_mult_runs_n_lockstep_ticks_per_system_frequency_tick():
+    base, b_waits = _fake_tick_runtime(1)
+    fast, f_waits = _fake_tick_runtime(4)
+    for _ in range(3):
+        base.tick()
+        fast.tick()
+        assert fast.step == base.step and fast.k_tick == 4 * base.k_tick   # row boundaries stay at 60 Hz
+    assert [s for s, _ in b_waits] == [34, 67, 100] and len(f_waits) == 12
+    for s, k in f_waits:   # each 240 Hz deadline falls inside its own lockstep tick
+        assert E.deadline_ns(k, 240.0) <= s * E.STEP_NS < E.deadline_ns(k, 240.0) + E.timer_period_ns(240.0) + E.STEP_NS
+    assert [E.deadline_ns(k, 60.0) for k in (1, 2, 3)] == [16_666_666, 33_333_332, 49_999_998]
+    assert E.timer_period_ns(240.0) == 4_166_666
+
+
+def test_tick_mult_scales_stack_frequency_and_clip_lag_and_enters_the_cache_key():
+    r = config.resolve_episode("kart1", "nominal", "pure-pursuit", {"type": "lap", "line": "center", "laps": 1}, 0, "dev")
+    r1 = dict(r, recipe=dict(r["recipe"], sim={"tick_mult": 1}))
+    r4 = dict(r, recipe=dict(r["recipe"], sim={"tick_mult": 4}))
+    args = ("line.csv", "/dev/pts/9", 5017, "/tmp/x")
+    assert E.episode_params(r1, *args) == E.episode_params(r, *args) and E.episode_params(r, *args)["/**"]["system_frequency"] == 60
+    p4 = E.episode_params(r4, *args)
+    assert p4["/**"]["system_frequency"] == 240 and {k: v for k, v in p4.items() if k != "/**"} == \
+        {k: v for k, v in E.episode_params(r, *args).items() if k != "/**"}
+    assert E.tick_mult(r["recipe"]) == 1 and E.tick_mult(r4["recipe"]) == 4
+    for bad in (0, -1, 1.5, True, "2"):
+        with pytest.raises(ValueError):
+            E.tick_mult({"sim": {"tick_mult": bad}})
+    path = {"t": np.array([0.0, 10.0]), "x": np.array([0.0, 50.0]), "y": np.zeros(2), "v": np.array([5.0, 7.0])}
+    g1, g4 = E.clip_ghost(path, 1.15, r["kart"], 0.3), E.clip_ghost(path, 1.15, r["kart"], 0.3, 4)
+    assert g1.lead == E.clip_ghost(path, 1.15, r["kart"], 0.3, 1).lead
+    assert abs((g1.lead - g4.lead) - (2 / 60 - 2 / 240)) < 1e-12
+    assert len({config.cache_key(x) for x in (r, r4)}) == 2
 
 
 def test_episode_params_turn_on_the_sim_only_overhead_cuts():

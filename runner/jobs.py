@@ -12,7 +12,7 @@ from harness import clips, config, metrics
 from runner import store
 
 ACTIVE = ("building", "running")
-SLICE = ("kart", "line", "condition", "cls")
+SLICE = ("kart", "line", "condition", "cls", "cap")
 _memo = {}
 
 
@@ -141,7 +141,8 @@ def progress(job_id):
 def _facets(rec):
     sc = rec["scenario"]
     return {"kart": rec["kart_name"], "line": sc.get("line") if sc["type"] == "lap" else None,
-            "condition": rec["condition"], "cls": clips.load(sc["clip_id"])["cls"] if sc["type"] == "clip" else None}
+            "condition": rec["condition"], "cls": clips.load(sc["clip_id"])["cls"] if sc["type"] == "clip" else None,
+            "cap": str(sc["speed_cap"]) if "speed_cap" in sc else None}   # str: slice values arrive as query strings
 
 
 def _match(f, sl):

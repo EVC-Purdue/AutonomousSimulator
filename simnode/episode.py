@@ -88,12 +88,20 @@ def steer_column(steer_deg, travel_deg):
     return column_target(max(-60.0, min(60.0, 2 * steer_deg)) / 60 * 100, travel_deg)
 
 
-def clip_ghost(path, wheelbase, kart, wheel_per_column):
+def clip_ghost(path, wheelbase, kart, wheel_per_column, mult=1):
     """Clip ghost compensating the kart's actuator chain: steering gain and delay, drive latency and lag."""
-    a, lag = kart["actuator"], 2.0 / kart["system_frequency"]  # one tick to the pathfinder relay, one to the 0x100 frame
+    a, lag = kart["actuator"], 2.0 / (kart["system_frequency"] * mult)  # one tick to the pathfinder relay, one to the 0x100 frame
     return Ghost(path, wheelbase, speed_gain=SPEED_GAIN, steer_gain=wheel_per_column * 2 * kart["steering_motor"]["travel_deg"] / 60,
                  delay_s=CLIP_PREDICT * (a["steer_latency_ms"] / 1000 + lag), speed_kv=SPEED_KV, lookahead_s=CLIP_LOOKAHEAD_S,
                  speed_lead_s=a["latency_ms"] / 1000 + lag, drive_tau_s=a["drive_tau_s"], lookahead_m=CLIP_LOOKAHEAD_M)
+
+
+def tick_mult(recipe):
+    """Recipe sim.tick_mult: lockstep control ticks per system_frequency tick (int >= 1, default 1)."""
+    n = (recipe.get("sim") or {}).get("tick_mult", 1)
+    if not isinstance(n, int) or isinstance(n, bool) or n < 1:
+        raise ValueError(f"sim.tick_mult must be an int >= 1, got {n!r}")
+    return n
 
 
 def first_calib_gate(target):
@@ -158,6 +166,14 @@ def line_path(name, root):
     return os.path.join(root, sub, name + ".csv")
 
 
+def stack_line_path(name, root, tmp, cap=None):
+    """Line CSV the stack drives: the track file, or under a speed cap a scaled copy in the episode tmp dir."""
+    if cap is None:
+        return line_path(name, root)
+    os.makedirs(os.path.join(tmp, "lines"), exist_ok=True)
+    return lines.write_capped(line_path(name, root), os.path.join(tmp, "lines", name + ".csv"), cap)
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -166,7 +182,7 @@ def free_port():
 
 def episode_params(resolved, path, can_channel, nmea_port, tmp, api_port=8000):
     k = resolved["kart"]
-    return {"/**": {"use_sim_time": True, "system_frequency": k["system_frequency"], "line_path": path,
+    return {"/**": {"use_sim_time": True, "system_frequency": k["system_frequency"] * tick_mult(resolved.get("recipe") or {}), "line_path": path,
                     "system_state": "IDLE"},
             "pathfinder_node": {"mpc.residual.mode": "off",  # its trainer runs on wall clock; recipes may re-enable
                                 "publish_plan": True},
@@ -291,13 +307,16 @@ class _Runtime:
     def __init__(self, resolved, tmp, root):
         self.r, self.tmp, self.root = resolved, tmp, root
         k = resolved["kart"]
-        self.kart, self.f = k, float(k["system_frequency"])
+        self.mult = tick_mult(resolved["recipe"])
+        self.kart, self.f = k, float(k["system_frequency"]) * self.mult  # lockstep tick rate; rows stay at system_frequency
         self.thr = failures.thresholds(resolved, root)
         self.invert = bool(resolved["recipe"].get("sim", {}).get("invert_steer", False))
         sc = resolved["scenario"]
         self.kind = sc["type"]
         self.clip = clips.load(sc["clip_id"]) if self.kind == "clip" else None
         self.line = lines.load_line(line_name(resolved, self.clip))
+        if sc.get("speed_cap") is not None:  # clips: only the line the stack follows after handoff; the ghost keeps the recorded speeds
+            self.line = lines.cap_speed(self.line, sc["speed_cap"])
         self.track = lines.load_track()
         ss = np.random.SeedSequence(resolved["seed"]).spawn(8)  # gps, imu, wheel, steering, outages, wrong-fix, imu bias, spare
         rng = [np.random.default_rng(s) for s in ss]
@@ -365,7 +384,7 @@ class _Runtime:
         self.node.create_subscription(String, "pathfinder/active_planner", self._on_planner, latched)
         self.exe = SingleThreadedExecutor()
         self.exe.add_node(self.node)
-        self.stack = Stack(resolved["recipe"], episode_params(resolved, line_path(self.line.name, root), self.pty.path,
+        self.stack = Stack(resolved["recipe"], episode_params(resolved, stack_line_path(self.line.name, root, tmp, resolved["scenario"].get("speed_cap")), self.pty.path,
                                                               self.nmea.port, tmp, self.api_port), tmp)
 
     def _on_odom(self, msg):
@@ -465,6 +484,11 @@ class _Runtime:
         self.truth = self.plant.truth()
 
     def tick(self):
+        """One system_frequency tick: tick_mult lockstep ticks."""
+        for _ in range(self.mult):
+            self._lock_tick()
+
+    def _lock_tick(self):
         """Physics to the next control tick boundary with sensors and /clock on the way, then wait for the next 0x100."""
         self.k_tick += 1
         end = math.ceil(Fraction(self.k_tick * 1_000_000_000) / (Fraction(self.f) * STEP_NS))
@@ -617,7 +641,7 @@ def _run(rt, rows, out, plans):
     else:
         handoff, end = t_ctx + LAP_CONTEXT_S, math.inf
     if rt.kind == "clip":
-        ghost = clip_ghost(path, rt.plant.wheelbase, rt.kart, wheel_per_column)
+        ghost = clip_ghost(path, rt.plant.wheelbase, rt.kart, wheel_per_column, rt.mult)
         rt.motor.preset(steer_column(ghost.command(0.0, rt.ghost_truth())[1], rt.travel))  # column where the recording was steering
     else:
         ghost = Ghost(path, rt.plant.wheelbase, speed_gain=0.0)  # laps start from rest: timing feedback overshoots

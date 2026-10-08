@@ -132,12 +132,16 @@ def read_plan(key):
         return [json.loads(line) for line in f if line.strip()]
 
 
+def lap_line(sc):
+    return sc["line"] if "speed_cap" not in sc else f'{sc["line"]}@{sc["speed_cap"]}'   # speed-capped laps are their own column
+
+
 def breakdown(recs):
     laps, by_cell = {}, {}
     for r in recs:
         sc = r["scenario"]
         if sc["type"] == "lap":
-            laps.setdefault(r["condition"], {}).setdefault(r["kart_name"], {})[sc["line"]] = {
+            laps.setdefault(r["condition"], {}).setdefault(r["kart_name"], {})[lap_line(sc)] = {
                 "cte_p90": r.get("cte_p90"), "status": r["status"], "cause": r.get("cause"), "key": r["key"]}
         else:
             cls = clips.load(sc["clip_id"])["cls"]

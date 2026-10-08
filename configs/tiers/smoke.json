@@ -1,11 +1,13 @@
 {
  "name": "smoke",
- "version": 2,
+ "version": 3,
  "runs": [
   {
    "laps": 1,
    "lines": [
-    "center"
+    "center",
+    "line1",
+    "line3_less_aggressive"
    ],
    "conditions": [
     "nominal"
@@ -20,6 +22,11 @@
    ],
    "conditions": [
     "nominal"
+   ],
+   "speed_caps": [
+    6,
+    8,
+    10
    ]
   }
  ],

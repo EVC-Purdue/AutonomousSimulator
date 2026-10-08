@@ -24,6 +24,11 @@ def main():
     for a in ("low", "medium", "high"):   # large tier: sensor noise (gps, imu, wheel) x steering noise
         for b in ("low", "medium", "high"):
             conds[f"sensors_{a}_steer_{b}"] = pick({"gps": a, "imu": a, "wheel": a, "steering": b})
+    for a in ("low", "medium", "high"):   # large tier v3: steering+actuator x kart (frame, grip) x sensors (gps, imu, wheel)
+        for b in ("low", "medium", "high"):
+            for c in ("low", "medium", "high"):
+                conds[f"steer_{a}_kart_{b}_sensors_{c}"] = pick({"steering": a, "actuator": a, "frame": b, "grip": b,
+                                                                 "gps": c, "imu": c, "wheel": c})
     for p in glob.glob(os.path.join(OUT, "*.json")):
         os.remove(p)
     for name, ov in conds.items():

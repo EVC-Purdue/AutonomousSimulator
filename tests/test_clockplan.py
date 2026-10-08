@@ -72,3 +72,13 @@ def test_clock_plan_reads_stack_params_with_recipe_overrides(tmp_path):
     assert periods["e_comms_node"] == [100 * MS, 100 * MS, 5000 * MS]
     assert periods["master_api"] == [1000 * MS]
     assert poll == (5 * MS, ["gps_node", "localization_node"])
+
+
+def test_clock_plan_at_tick_mult_4_clocks_pathfinder_at_240_hz(tmp_path):
+    p = tmp_path / "params"
+    p.mkdir()
+    (p / "gps.yaml").write_text("gps_node:\n  ros__parameters:\n    gps_frequency: 20\n")
+    one, four = clock_plan(60.0 * 1, {}, str(tmp_path)), clock_plan(60.0 * 4, {}, str(tmp_path))
+    assert one == clock_plan(60, {}, str(tmp_path)) and one[0]["pathfinder_node"][0] == 16_666_666
+    assert four[0]["pathfinder_node"] == [4_166_666, 500 * MS, 5000 * MS]
+    assert {k: v for k, v in four[0].items() if k != "pathfinder_node"} == {k: v for k, v in one[0].items() if k != "pathfinder_node"}

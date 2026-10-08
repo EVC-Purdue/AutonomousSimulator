@@ -5,7 +5,7 @@ const S = { jobs: [], sel: null, checked: [], meta: { recipes: [], tiers: null, 
   timer: null, tier: "smoke", where: "local", paramsTouched: false, cells: {}, slice: {}, armed: null, armTimer: null, f: { q: "", tier: "", where: "" } };
 const main = document.getElementById("main");
 const ACTIVE = ["building", "running"];
-const LINES = ["center", "line1", "line3"];
+const LINES = ["center", "line1", "line4"];
 const CLASSES = ["offset_aligned", "misaligned_on_line", "oscillation", "recoverable_failure"];
 const TRASH = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5"/></svg>';
 
@@ -201,7 +201,7 @@ function renderLaps(b, makeCell = lapCell) {
   const laps = b.laps;
   const conds = S.meta.conditions.map((c) => c.name).filter((c) => laps[c]).concat(Object.keys(laps).filter((c) => !S.meta.conditions.some((m) => m.name === c)));
   const karts = [...new Set(conds.flatMap((c) => Object.keys(laps[c])))].sort();
-  const lines = LINES.filter((l) => conds.some((c) => karts.some((k) => laps[c][k] && laps[c][k][l])));
+  const lines = U.lineKeys(LINES, conds.flatMap((c) => karts.flatMap((k) => Object.keys(laps[c][k] || {}))));
   const cols = ["auto", "auto"];
   karts.forEach((k, i) => { if (i) cols.push("12px"); lines.forEach(() => cols.push("44px")); });
   const g = h("div", { class: "lm", style: `grid-template-columns:${cols.join(" ")}` });

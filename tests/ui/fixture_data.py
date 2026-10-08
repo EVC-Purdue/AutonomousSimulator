@@ -20,7 +20,7 @@ QUALITY = {"mpc-h60": 0.55, "pure-pursuit": 1.0, "stack-default": 0.8, "mpc-h40"
            "mpc-h80": 0.6, "mpc-broken": 1.0}
 SEVERITY = {"nominal": 1.0, "all_high": 1.9, "all_low": 0.8, "heading_dual": 0.95, "freq_45": 1.35}
 KART = {"kart1": 1.0, "kart2": 1.35, "kart3": 1.12}
-SPEED = {"center": 6.0, "line1": 7.5, "line3": 8.0}
+SPEED = {"center": 6.0, "line1": 7.5, "line4": 4.0, "line3_less_aggressive": 7.5}
 CAUSES = ("spin", "off_track", "localization_lost", "no_commands")
 BUILD_LOG = """Starting >>> autonomous_kart
 --- stderr: autonomous_kart

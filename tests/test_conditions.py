@@ -13,7 +13,7 @@ def names():
 
 def test_condition_files():
     n = names()
-    assert len([x for x in n if x != "gps_dead" and not x.startswith("sensors_")]) == TIER_CONDITIONS
+    assert len([x for x in n if x != "gps_dead" and not x.startswith(("sensors_", "steer_"))]) == TIER_CONDITIONS
     assert {"nominal", "freq_45", "heading_dual", "all_low", "all_high", "gps_dead"} <= set(n)
 
 

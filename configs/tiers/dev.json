@@ -1,6 +1,6 @@
 {
  "name": "dev",
- "version": 1,
+ "version": 2,
  "clip_revision": "8721e08cdeed711a131f1de6d2386d4985a06cae",
  "runs": [
   {
@@ -8,7 +8,7 @@
    "lines": [
     "center",
     "line1",
-    "line3"
+    "line4"
    ],
    "conditions": "all"
   },
