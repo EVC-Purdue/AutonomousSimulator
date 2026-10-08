@@ -60,12 +60,13 @@ def test_cache_key_ignores_name_notes_tier():
         assert k != config.cache_key(config.resolve_episode("kart1", "nominal", other, sc, 0, "smoke"))
 
 
-def test_smoke_keys_are_shared_with_dev(monkeypatch):
+def test_smoke_uncapped_dev_line_keys_are_shared_with_dev(monkeypatch):
     from harness import clips, tiers
-    smoke = {config.cache_key(r) for r in tiers.expand("smoke", _rec())}
+    smoke = {config.cache_key(r) for r in tiers.expand("smoke", _rec())
+             if "speed_cap" not in r["scenario"] and r["scenario"].get("line") in ("center", "line1")}   # smoke v3: capped clips and line3_less_aggressive are smoke only
     ids = sorted({r["scenario"]["clip_id"] for r in tiers.expand("smoke", _rec()) if r["scenario"]["type"] == "clip"})
     monkeypatch.setattr(clips, "accepted_ids", lambda revision=None: ids)
-    assert len(smoke) == 15 and smoke <= {config.cache_key(r) for r in tiers.expand("dev", _rec())}
+    assert len(smoke) == 6 and smoke <= {config.cache_key(r) for r in tiers.expand("dev", _rec())}
 
 
 def _tree(root):

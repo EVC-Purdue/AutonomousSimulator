@@ -303,7 +303,7 @@ input[type=checkbox]:disabled { opacity: .3; cursor: default; }
 .panel .ph h2 { font-size: 15px; font-weight: 600; margin: 0; }
 .panel form { flex: 1; overflow-y: auto; padding: 16px 24px; display: flex; flex-direction: column; gap: 16px; }
 .field label { display: block; font-size: 13px; color: var(--gray); margin-bottom: 6px; }
-.field input[type=text], .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px;
+.field input[type=text], .field input[type=password], .field textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px;
   padding: 0 12px; height: 36px; background: var(--white); }
 .field textarea { height: 128px; padding: 8px 12px; font: 13px/1.5 var(--mono); resize: vertical; }
 .field input:focus, .field textarea:focus { outline: none; border-color: var(--black); }

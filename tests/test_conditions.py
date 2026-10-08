@@ -54,3 +54,15 @@ def test_combined_sensor_steering_conditions():
             want = {"steering": b, "gps": a, "imu": a, "wheel": a}
             ov = config.load("conditions", f"sensors_{a}_steer_{b}")["overrides"]
             assert ov == [o for s in lv for o in lv[s][want.get(s, "medium")]]
+
+
+def test_large_v3_noise_group_conditions():
+    lv = {s: json.load(open(os.path.join(config.CONFIGS, "levels", s + ".json")))
+          for s in ("steering", "gps", "imu", "wheel", "actuator", "grip", "frame")}
+    groups = {"steer": ("steering", "actuator"), "kart": ("frame", "grip"), "sensors": ("gps", "imu", "wheel")}
+    for a in ("low", "medium", "high"):
+        for b in ("low", "medium", "high"):
+            for c in ("low", "medium", "high"):
+                want = {s: lvl for g, lvl in zip(groups, (a, b, c)) for s in groups[g]}
+                ov = config.load("conditions", f"steer_{a}_kart_{b}_sensors_{c}")["overrides"]
+                assert ov == [o for s in lv for o in lv[s][want[s]]]

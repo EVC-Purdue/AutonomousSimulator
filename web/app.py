@@ -1,5 +1,6 @@
 """Flask frontend: Jobs and Leaderboard pages and their JSON API over the runner and store."""
 import datetime
+import hmac
 import json
 import math
 import os
@@ -239,15 +240,32 @@ def _parse_submit(d):
     sim = d.get("sim") or {}
     if not isinstance(sim, dict):
         errors["sim"] = "Must be a JSON object"
-    if where not in ("local", "modal", "modal-gpu", "gautschi", "gautschi-gpu"):
-        errors["where"] = "local, modal, modal-gpu, gautschi or gautschi-gpu"
+    if where not in ("local", "modal", "modal-gpu", "gautschi", "gautschi-gpu", "ideas"):
+        errors["where"] = "local, modal, modal-gpu, gautschi, gautschi-gpu or ideas"
     elif where == "modal" and tier != "smoke":
         errors["where"] = "Modal runs smoke only"
     elif where == "modal-gpu" and tier not in ("smoke", "dev"):
         errors["where"] = "Modal gpu runs smoke and dev only"
-    elif isinstance(sim, dict) and sim.get("cuda") and where not in ("gautschi-gpu", "modal-gpu"):
-        errors["where"] = "CUDA recipes run on gautschi gpu or modal gpu only"
+    elif isinstance(sim, dict) and sim.get("cuda") and where not in ("gautschi-gpu", "modal-gpu", "ideas"):
+        errors["where"] = "CUDA recipes run on gautschi gpu, modal gpu or ideas only"
     return errors, params, tier, where
+
+
+def _denied():
+    """A 403 response when AUTONOMOUS_SIM_PASSWORD is set and the request lacks it (X-Password header or JSON password)."""
+    want = os.environ.get("AUTONOMOUS_SIM_PASSWORD")
+    if not want:
+        return None
+    d = request.get_json(silent=True)
+    got = request.headers.get("X-Password") or (d.get("password") if isinstance(d, dict) else None)
+    if isinstance(got, str) and hmac.compare_digest(got.encode(), want.encode()):
+        return None
+    return jsonify({"errors": {"password": "Wrong or missing password"}}), 403
+
+
+def _worktree_ok(ref):
+    """False for a worktree: ref whose directory is not on this host (a server builds from git)."""
+    return not ref.startswith("worktree:") or os.path.isdir(ref[len("worktree:"):])
 
 
 def _smoked(recipe):
@@ -274,6 +292,8 @@ def create_app():
 
     @app.post("/api/jobs")
     def api_submit():
+        if denied := _denied():
+            return denied
         d = request.get_json(silent=True) or {}
         errors, params, tier, where = _parse_submit(d)
         if errors:
@@ -305,6 +325,8 @@ def create_app():
 
     @app.delete("/api/jobs/<job_id>")
     def api_delete(job_id):
+        if denied := _denied():
+            return denied
         _job_or_404(job_id)
         try:
             jobs.delete(job_id)
@@ -457,13 +479,22 @@ def create_app():
             tier_info[t] = {"episodes": n, "cost_usd": round(n * wall * rate, 4)}
         for t in TIERS:
             tier_info[t]["rows"] = len(store.leaderboard(tier=t))
-        return jsonify({"recipes": recipes, "default_ref": default["source"]["ref"] if default else "", "refs": local.recent_refs(),
+        ref = default["source"]["ref"] if default else ""
+        return jsonify({"recipes": recipes, "default_ref": ref if _worktree_ok(ref) else "main", "refs": local.recent_refs(),
+                        "worktrees": any(r["source"]["ref"].startswith("worktree:") and _worktree_ok(r["source"]["ref"]) for r in recipes),
+                        "password": bool(os.environ.get("AUTONOMOUS_SIM_PASSWORD")),
                         "tiers": tier_info, "default_tier": _default_tier(tier_info), "conditions": conditions()})
 
     return app
 
 
 app = create_app()
+
+
+def serve():
+    """gunicorn entry (web.app:serve()): the app plus its runner threads in the one worker that holds the claims."""
+    local.Runner(workers=1).start()   # workers sizes local Docker batches; the server has no Docker
+    return app
 
 
 def main():

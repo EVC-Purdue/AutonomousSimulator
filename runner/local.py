@@ -3,6 +3,7 @@ import concurrent.futures
 import copy
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -21,7 +22,7 @@ from runner import jobs, store
 IMAGE = "evc-sim:dev"
 BATCH = 5
 HPC_THREADS = 256   # threads waiting on Gautschi episodes; one per episode exhausts the process at 10k
-AK_REPO = os.environ.get("AK_REPO", os.path.expanduser("~/PycharmProjects/AutonomousKart"))
+AK_REPO = os.environ.get("AUTONOMOUS_KART_REPO", os.environ.get("AK_REPO", os.path.expanduser("~/PycharmProjects/AutonomousKart")))
 PARAMS_DIR = "src/autonomous_kart/autonomous_kart/params"
 RUN_CMD = ("source /opt/ros/humble/setup.bash && source /ws/install/setup.bash"
            " && python3 -m simnode.batch /batch.json /out")
@@ -33,7 +34,7 @@ MODAL_APP = "evc-sim"
 REAP_EVERY = 60   # s between Modal app reaps in the modal thread
 ORPHAN_AGE = datetime.timedelta(minutes=10)   # an app on no job is a crashed client's after this
 BUSY = set()   # job ids a runner thread of this process is working on
-WHERE = ("local", "modal", "modal-gpu", "gautschi", "gautschi-gpu")   # one runner thread each
+WHERE = ("local", "modal", "modal-gpu", "gautschi", "gautschi-gpu", "ideas")   # one runner thread each
 SIM_SUPPORT = "src/autonomous_kart/autonomous_kart/launch/bringup_simdev.launch.py"   # absent on branches without sim-support
 
 
@@ -181,6 +182,8 @@ def stop_job(job):
         from runner import gautschi
         gautschi.stop(job)
         return
+    if job["where"] == "ideas":   # its driver sees the cancel file and kills its launcher
+        return
     if job["where"] in ("modal", "modal-gpu"):
         if job.get("modal_app_id"):
             stop_modal_app(job["modal_app_id"])
@@ -189,6 +192,15 @@ def stop_job(job):
                          capture_output=True, text=True).stdout.split()
     if ids:
         subprocess.run(["docker", "kill", *ids], capture_output=True)
+
+
+def run_ideas(job_id):
+    """Runs the job in a runner.ideas driver process, which keeps its rewiring of runner.gautschi out of this one."""
+    subprocess.run([sys.executable, "-m", "runner.ideas", os.path.join(store.job_dir(job_id), "job.json"), "--job", job_id],
+                   cwd=config.ROOT)   # job.json stands in for the recipe file, which --job does not use
+    job = jobs.get(job_id)   # None once deleted
+    if job and job["status"] in jobs.ACTIVE + ("queued",):
+        raise RuntimeError(f"the ideas driver of {job_id} exited without finishing it")
 
 
 def build_stack(ref, h):
@@ -368,7 +380,7 @@ class Runner:
                 raise Cancelled(jid)
             self._set(jid, status="running")
             for attempt in (0, 1):
-                if hpc and attempt == 1 and len(new) <= gautschi.RETRY_NODE_MIN:
+                if hpc and attempt == 1 and len(new) <= gautschi.RETRY_NODE_MIN and importlib.util.find_spec("modal"):   # without modal (the web image) they retry on the host
                     done, errors = self._retry_on_modal(jid, ref, h, new, idx, done, errors)
                     break
                 batch = modal_app.fetch_gpu if gpu else modal_app.fetch if remote else gautschi.fetch if hpc else run_batch
@@ -418,6 +430,8 @@ class Runner:
                 elif job["where"] in ("gautschi", "gautschi-gpu"):
                     from runner import gautschi
                     gautschi.run_job(job["id"], self)
+                elif job["where"] == "ideas":
+                    run_ideas(job["id"])
                 else:
                     self._run_job(job)
             except Cancelled:
@@ -434,6 +448,8 @@ class Runner:
 
     def reap(self):
         """Stops evc-sim apps recorded on a job whose owner is gone, or recorded on none and older than ORPHAN_AGE."""
+        if not importlib.util.find_spec("modal"):   # the web image has no Modal
+            return
         recorded = {j["modal_app_id"]: j["id"] for j in jobs.list_jobs() if j.get("modal_app_id")}
         now = datetime.datetime.now(datetime.timezone.utc)
         for a in live_modal_apps():

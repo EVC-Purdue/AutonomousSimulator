@@ -22,12 +22,12 @@ def test_smoke_runs_through_one_sbatch_and_records(tmp_results, fake_docker, gau
     jid = _job()
     local.Runner(workers=1).run_once()
     job = jobs.get(jid)
-    assert job["status"] == "done" and job["slurm_id"] == "1001" and job["workers"] == 15
+    assert job["status"] == "done" and job["slurm_id"] == "1001" and job["workers"] == 45
     assert len(gautschi_remote.scripts) == 1
     s = gautschi_remote.scripts[0]
     assert "-p highmem" in s and "-A lilly-rob1" in s and "-c 96" in s and "--time" in s and f"-J AutoSim-smoke --comment {jid} " in s
     recs = store.episodes(jid)
-    assert len(recs) == 15 and all(r["status"] == "ok" for r in recs)
+    assert len(recs) == 45 and all(r["status"] == "ok" for r in recs)
     assert all(r["cte_p90"] is not None for r in recs if r["scenario"]["type"] == "lap")
     assert fake_docker.build_calls == 0 and fake_docker.batch_calls == 0
     assert os.path.exists(os.path.join(store.job_dir(jid), "summary.json"))
@@ -51,8 +51,8 @@ def test_laps_first_then_clips_longest_first():
     r = config.load("recipes", "stack-default")
     eps = gautschi.order(tiers.expand("smoke", r))
     kinds = [e["scenario"]["type"] for e in eps]
-    assert kinds == ["lap"] * 3 + ["clip"] * 12
-    lens = [gautschi.sim_estimate(e) for e in eps[3:]]
+    assert kinds == ["lap"] * 9 + ["clip"] * 36
+    lens = [gautschi.sim_estimate(e) for e in eps[9:]]
     assert lens == sorted(lens, reverse=True)
 
 
@@ -313,7 +313,7 @@ def test_a_chunked_job_keeps_two_slurm_jobs_at_once_and_records_all(tmp_results,
     assert job["status"] == "done" and job["errors"] == 0 and len(scripts) >= 3 and len(job["slurm_ids"]) == len(scripts)
     assert all(f"-J AutoSim-smoke-A26_MPC_stack-{n + 1} " in s for n, s in enumerate(scripts))
     assert ["--dependency" in s for s in scripts] == [n >= 2 for n in range(len(scripts))]
-    assert "--dependency=afterany:1001" in scripts[2] and len(store.episodes(jid)) == 15
+    assert "--dependency=afterany:1001" in scripts[2] and len(store.episodes(jid)) == 45
 
 
 def test_stop_cancels_every_chunk():
@@ -353,18 +353,18 @@ def test_two_gpu_jobs_can_run_at_once(monkeypatch):
     assert sorted(seen) == sorted(local.WHERE + ("gautschi-gpu",))
 
 
-def test_large_highmem_is_three_short_chunks_with_laps_in_both():
+def test_large_highmem_is_eight_short_chunks_with_laps_in_each():
     eps = tiers.expand("large", config.load("recipes", "pure-pursuit"))
     parts = gautschi.chunks(eps, "large", "gautschi")
-    assert len(parts) == 3 and all(sum(e["scenario"]["type"] == "lap" for e in p) >= 80 for p in parts)  # stretched clip contexts lengthen the estimate
+    assert len(parts) == 8 and all(sum(e["scenario"]["type"] == "lap" for e in p) >= 90 for p in parts)  # stretched clip contexts lengthen the estimate
     for n, p in enumerate(parts):
         s = gautschi.sbatch_script("j", n, "large", p, "h", "e", "gautschi", name=f"x-{n}", retry=False)
         assert "-c 192" in s and "--dependency" not in s and int(s.split("--time ")[1].split()[0]) <= 100
 
 
-def test_gpu_smoke_asks_for_about_ten_minutes():
+def test_gpu_smoke_asks_for_about_twelve_minutes():
     eps = tiers.expand("smoke", config.load("recipes", "mpc-cuda-8192"))
-    assert "--time 11 " in gautschi.sbatch_script("j", 0, "smoke", gautschi.order(eps), "h", "e", "gautschi-gpu")
+    assert "--time 12 " in gautschi.sbatch_script("j", 0, "smoke", gautschi.order(eps), "h", "e", "gautschi-gpu")
 
 
 def test_hpc_wait_threads_are_capped(tmp_results, fake_docker, gautschi_remote, monkeypatch):
@@ -399,10 +399,10 @@ def test_results_stream_back_while_the_slurm_job_runs(tmp_results, fake_docker, 
     jid = _job()
     local.Runner(workers=1).run_once()
     job = jobs.get(jid)
-    assert job["status"] == "done" and job["done"] == 15 and job["errors"] == 0
+    assert job["status"] == "done" and job["done"] == 45 and job["errors"] == 0
     lists = [p for p in gautschi_remote.pulled if p is not None]
     assert len(gautschi_remote.pulled) == len(lists) and all(0 < len(p) <= 4 for p in lists)
-    assert sum(len(p) for p in lists) == 15 and len(set().union(*lists)) == 15   # each key pulled once
+    assert sum(len(p) for p in lists) == 45 and len(set().union(*lists)) == 45   # each key pulled once
 
 
 def test_outputs_go_to_scratch(tmp_results, fake_docker, gautschi_remote):

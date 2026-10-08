@@ -33,11 +33,11 @@ def test_modal_job_writes_results_like_local(tmp_results, fake_docker, monkeypat
                                 "params": {}, "notes": "n"}, "u", "m", "modal")
     local.Runner(workers=1).run_once()
     assert jobs.get(jid)["status"] == "done" and fake_docker.build_calls == 0 and fake_docker.batch_calls == 0
-    assert sorted(len(c) for c in fr.calls) == [1, 1, 1, 4, 4, 4]  # one lap or CLIPS_PER_CONTAINER clips per container
+    assert sorted(len(c) for c in fr.calls) == [1] * 9 + [4] * 9  # one lap or CLIPS_PER_CONTAINER clips per container
     assert all(len({e["resolved"]["scenario"]["type"] for e in c}) == 1 for c in fr.calls)
     assert all(c[0]["key"] == config.cache_key(c[0]["resolved"]) for c in fr.calls)
     recs = store.episodes(jid)
-    assert len(recs) == 15 and all(r["status"] == "ok" for r in recs)
+    assert len(recs) == 45 and all(r["status"] == "ok" for r in recs)
     assert all(r["cte_p90"] is not None for r in recs if r["scenario"]["type"] == "lap")
     for r in recs:
         assert os.path.exists(os.path.join(store.episode_dir(r["key"]), "outcome.json"))
@@ -102,7 +102,7 @@ def test_modal_eta_uses_container_count(tmp_results, fake_docker, monkeypatch):
     monkeypatch.setattr(modal_app.app, "run", contextlib.nullcontext)
     jid = _modal_job()
     local.Runner(workers=1).run_once()
-    assert jobs.get(jid)["workers"] == 6  # containers: 3 laps alone, 12 clips in 3 batches
+    assert jobs.get(jid)["workers"] == 18  # containers: 9 laps alone, 36 clips in 9 batches
 
 
 def test_modal_job_does_not_block_local_jobs(tmp_results, fake_docker, monkeypatch):
@@ -247,10 +247,10 @@ def test_modal_gpu_job_runs_on_the_gpu_function_in_shared_containers(tmp_results
     monkeypatch.setattr(modal_app, "GPU_BATCH", 8)
     jid = _gpu_job()
     local.Runner(workers=1).run_once()
-    assert jobs.get(jid)["status"] == "done" and cpu.calls == [] and sorted(len(c) for c in gpu.calls) == [7, 8]
+    assert jobs.get(jid)["status"] == "done" and cpu.calls == [] and sorted(len(c) for c in gpu.calls) == [7, 7, 7, 8, 8, 8]
     assert modal_cli.stopped() == ["ap-job"] and jobs.get(jid)["modal_app_id"] == "ap-job"
     recs = store.episodes(jid)
-    assert len(recs) == 15 and all(r["status"] == "ok" for r in recs)
+    assert len(recs) == 45 and all(r["status"] == "ok" for r in recs)
     for r in recs:
         assert open(os.path.join(store.episode_dir(r["key"]), "solver.txt")).read() == "MPC solver: cuda (fp32)\n"
 

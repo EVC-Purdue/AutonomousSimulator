@@ -11,7 +11,7 @@ import traceback
 from harness import config
 from runner import gautschi as g, jobs, local, store
 
-HOST = os.environ.get("IDEAS_HOST", "csuser@ideas8.cs.purdue.edu")
+HOST = os.environ.get("IDEAS_HOST", "csuser@100.88.24.43")   # ideas8 over Tailscale
 ENV = "export PATH=$HOME/AutoSim/bin:$PATH; "   # AutoSim/bin/apptainer links to the host's singularity 3.7
 WHERE = "ideas"
 
@@ -87,6 +87,7 @@ def main(argv=None):
     jid = a.job or jobs.submit(a.tier, recipe, a.user, a.notes, WHERE)
     if a.job:
         store.write_json(os.path.join(store.job_dir(jid), "claim"), {"pid": os.getpid(), "host": "ideas-driver"})
+        scancel(*jobs.get(jid).get("slurm_ids", []))   # an earlier driver's launchers; their unpulled episodes rerun
     elif not jobs.claim(jid):
         sys.exit(f"{jid} was claimed by another runner")
     print(jid, flush=True)

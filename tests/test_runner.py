@@ -15,7 +15,7 @@ def test_job_lifecycle_and_eta(tmp_results, fake_docker):
     seen = local.Runner(workers=1).run_once(record_status=True)
     assert seen[jid][:3] == ["building", "running", "running"] and jobs.get(jid)["status"] == "done"
     p = jobs.progress(jid)
-    assert p["done"] == p["total"] == 15
+    assert p["done"] == p["total"] == 45
 
 
 def test_resubmit_simulates_nothing(tmp_results, fake_docker):
@@ -323,3 +323,30 @@ def test_public_job_json_has_no_host_paths(tmp_results, fake_docker):
     jid = jobs.submit("smoke", recipe("worktree:/Users/someone/AutonomousKart-sim"), "u", "x")
     ops = dict(store._upload_ops([f"jobs/{jid}/**"]))
     assert json.loads(ops[f"results/jobs/{jid}/job.json"])["recipe"]["source"]["ref"] == "worktree:AutonomousKart-sim"
+
+
+def test_ideas_jobs_run_in_a_driver_process(tmp_results, monkeypatch):
+    import subprocess
+    calls = []
+
+    def driver(args, cwd=None):
+        calls.append(args)
+        jid = args[args.index("--job") + 1]
+        jobs.update(jid, status="done" if len(calls) == 1 else "running")   # the second driver dies mid-job
+    monkeypatch.setattr(subprocess, "run", driver)
+    a = jobs.submit("smoke", recipe(), "u", "a", "ideas")
+    local.Runner(workers=1).run_once(where="ideas")
+    assert calls[0][1:4] == ["-m", "runner.ideas", os.path.join(store.job_dir(a), "job.json")] and jobs.get(a)["status"] == "done"
+    b = jobs.submit("smoke", recipe(), "u", "b", "ideas")
+    local.Runner(workers=1).run_once(where="ideas")
+    assert jobs.get(b)["status"] == "failed" and "exited without finishing" in open(jobs.get(b)["build_log"]).read()
+    local.stop_job(jobs.get(b))   # no Docker call: the driver watches the cancel file
+
+
+def test_no_modal_package_skips_the_reap_and_hf_upload_can_be_off(tmp_results, modal_cli, hf_uploads, monkeypatch):
+    monkeypatch.setattr(local.importlib.util, "find_spec", lambda name: None)
+    local.Runner(workers=1).reap()
+    assert modal_cli.calls == []
+    monkeypatch.setenv("AUTONOMOUS_SIM_HF_UPLOAD", "0")
+    store._upload("x")
+    assert hf_uploads == [] and not os.path.exists(os.path.join(store.RESULTS, "upload_pending.json"))

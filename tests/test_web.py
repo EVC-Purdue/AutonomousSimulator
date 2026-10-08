@@ -485,3 +485,44 @@ def test_loc_rms_autonomous_after_first_odom(client):
     assert c.get(f"/api/episodes/{ids['mpc-h60']}/{key}").get_json()["loc"] == {"rms": 0.05, "p95": 0.05}
     assert c.get(f"/api/jobs/{ids['mpc-h80']}").get_json()["headline"]["loc_rms"]["value"] is not None
     assert not os.path.exists(os.path.join(store.job_dir(ids["mpc-h80"]), "loc_rms.json"))   # running: never cached incomplete
+
+
+def test_password_gates_submit_and_delete(client, monkeypatch):
+    c, ids = client
+    good = {"recipe_name": "pw", "ref": fixture_data.WT, "params": {}, "tier": "smoke", "where": "local", "user": "u", "notes": ""}
+    monkeypatch.setenv("AUTONOMOUS_SIM_PASSWORD", "s3cret")
+    assert c.get("/api/meta").get_json()["password"] is True and c.get("/api/jobs").status_code == 200   # viewing stays open
+    for body, headers in ((good, {}), (dict(good, password="nope"), {}), (good, {"X-Password": "nope"}), (dict(good, password=5), {})):
+        r = c.post("/api/jobs", json=body, headers=headers)
+        assert r.status_code == 403 and r.get_json()["errors"] == {"password": "Wrong or missing password"}
+    r = c.post("/api/jobs", json=dict(good, password="s3cret"))
+    assert r.status_code == 200 and "s3cret" not in open(os.path.join(store.job_dir(r.get_json()["id"]), "job.json")).read()
+    jid = c.post("/api/jobs", json=good, headers={"X-Password": "s3cret"}).get_json()["id"]
+    assert c.delete(f"/api/jobs/{jid}").status_code == 403 and store.has_job(jid)
+    assert c.delete(f"/api/jobs/{jid}", headers={"X-Password": "s3cret"}).status_code == 200 and not store.has_job(jid)
+    monkeypatch.delenv("AUTONOMOUS_SIM_PASSWORD")
+    assert c.post("/api/jobs", json=good).status_code == 200 and c.get("/api/meta").get_json()["password"] is False
+
+
+def test_submit_ideas_takes_cuda_recipes(client):
+    c, ids = client
+    r = c.post("/api/jobs", json={"recipe_name": "i1", "ref": fixture_data.WT, "params": {}, "tier": "smoke", "where": "ideas",
+                                  "user": "u", "notes": "", "sim": {"cuda": True}})
+    assert r.status_code == 200 and jobs.get(r.get_json()["id"])["where"] == "ideas"
+
+
+def test_meta_falls_back_to_main_without_the_worktrees(client, monkeypatch):
+    from web import app as web_app
+    c, ids = client
+    monkeypatch.setattr(web_app, "_worktree_ok", lambda ref: not ref.startswith("worktree:"))
+    m = c.get("/api/meta").get_json()
+    assert m["default_ref"] == "main" and m["worktrees"] is False
+    assert not web_app._worktree_ok("worktree:/no/such/dir") and web_app._worktree_ok("main")
+
+
+def test_gunicorn_entry_starts_the_runner(monkeypatch):
+    import web.app as web_app
+    from runner import local
+    started = []
+    monkeypatch.setattr(local.Runner, "start", lambda self: started.append(self.workers) or self)
+    assert web_app.serve() is web_app.app and started == [1]

@@ -15,7 +15,7 @@ import numpy as np
 from harness import clips, metrics
 from harness.config import ROOT, cache_key, engine_version, load
 
-RESULTS = os.path.join(ROOT, "results")
+RESULTS = os.environ.get("AUTONOMOUS_SIM_RESULTS", os.path.join(ROOT, "results"))
 HF_REPO = "ShayManor/Sim_data"
 SHARD_SIZE = 50
 _INDEX_LOCK = threading.Lock()   # index appends vs the shard rewrite in _pack_logs
@@ -286,6 +286,8 @@ def hf_upload(patterns, deletes=()):
 
 
 def _upload(job_id=None, deleted=None):
+    if os.environ.get("AUTONOMOUS_SIM_HF_UPLOAD", "1") == "0":   # a server without an HF token
+        return
     pending_path = os.path.join(RESULTS, "upload_pending.json")
     deletes_path = os.path.join(RESULTS, "delete_pending.json")
     with _SYNC_LOCK:

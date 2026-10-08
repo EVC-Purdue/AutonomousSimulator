@@ -13,7 +13,7 @@ def test_smoke_is_nine_laps_and_one_listed_clip_per_class_at_three_caps():
     assert {e["kart_name"] for e in eps} == {"kart1", "kart2", "kart3"} and {e["condition"] for e in eps} == {"nominal"}
     index = {r["id"]: r["cls"] for r in json.load(open(clips.os.path.join(clips.CLIPS, "index.json")))}
     ids = sorted({e["scenario"]["clip_id"] for e in clip_eps})
-    assert ids == ["20260520_000232_00015", "20260520_000232_00021", "20260520_223739_00129", "20260520_223739_00263"]
+    assert ids == ["20260520_000232_00015", "20260520_223739_00129", "20260520_223739_00263", "20261003_194044_auto_00071"]
     assert sorted(index[i] for i in ids) == ["misaligned_on_line", "offset_aligned", "oscillation", "recoverable_failure"]
 
 

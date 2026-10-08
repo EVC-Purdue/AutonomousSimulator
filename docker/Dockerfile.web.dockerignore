@@ -1,0 +1,16 @@
+*
+!harness
+!runner
+!web
+!simnode
+!chrono
+!configs
+!tracks
+!data/noise/*.json
+!data/noise/*.npz
+!docker/Dockerfile
+!docker/Dockerfile.base
+!docker/build_chrono.sh
+!docker/requirements-stack.txt
+!docker/AutoSim.def
+**/__pycache__

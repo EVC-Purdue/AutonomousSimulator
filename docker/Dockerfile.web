@@ -1,0 +1,21 @@
+# Web app and job runner for the mini PC: Flask under gunicorn plus the ssh/rsync/git runners (ideas, gautschi); no ROS or Chrono.
+FROM python:3.13-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git rsync openssh-client \
+    && rm -rf /var/lib/apt/lists/* && git config --system --add safe.directory '*'
+RUN pip install --no-cache-dir flask numpy jsonschema pyyaml huggingface_hub gunicorn
+WORKDIR /app
+COPY docker/Dockerfile docker/Dockerfile.base docker/build_chrono.sh docker/requirements-stack.txt docker/AutoSim.def docker/
+COPY data/noise data/noise
+COPY harness harness
+COPY configs/tiers configs/tiers
+RUN python -c "from harness import clips, config; clips._fetch(config.load('tiers', 'dev')['clip_revision'])" && rm -rf data/.cache
+COPY simnode simnode
+COPY chrono chrono
+COPY tracks tracks
+COPY configs configs
+COPY runner runner
+COPY web web
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+# one worker: the runner threads, their job claims and the driver processes live in it; threads serve concurrent requests
+CMD ["gunicorn", "-k", "gthread", "--workers", "1", "--threads", "8", "--timeout", "120", "--graceful-timeout", "30", \
+     "--access-logfile", "-", "-b", "127.0.0.1:5060", "web.app:serve()"]

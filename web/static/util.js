@@ -76,12 +76,12 @@ const U = (() => {
   const condLabel = (conds, n) => { const c = conds.find((x) => x.name === n); return c ? (c.level ? `${c.group} ${c.level}` : c.group) : human(n); };
   function sliceText(sl, conds) {
     return [sl.kart && sl.kart !== "worst" ? kart(sl.kart) : "", sl.line || "", sl.condition ? condLabel(conds, sl.condition) : "",
-      sl.cls ? human(sl.cls) : "", sl.cap ? `≤${sl.cap} m/s` : ""].filter(Boolean).join(" · ");
+      sl.cls ? human(sl.cls) : "", sl.cap ? `max ${sl.cap} m/s` : ""].filter(Boolean).join(" · ");
   }
   function filters(opts, sl, conds, onChange) {
     const order = { condition: conds.map((c) => c.name), cls: ["offset_aligned", "misaligned_on_line", "oscillation", "recoverable_failure"] };
     const all = { kart: "All karts", line: "All lines", condition: "All conditions", cls: "All classes", cap: "All speeds" };
-    const label = { kart: (v) => (v === "worst" ? "Worst kart" : kart(v)), line: (v) => v, condition: (v) => condLabel(conds, v), cls: human, cap: (v) => `≤${v} m/s` };
+    const label = { kart: (v) => (v === "worst" ? "Worst kart" : kart(v)), line: (v) => v, condition: (v) => condLabel(conds, v), cls: human, cap: (v) => `max ${v} m/s` };
     const bar = h("div", { class: "filt" });
     for (const k of SLICE) {
       const o = opts[k] || {};

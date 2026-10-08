@@ -2,7 +2,7 @@
 window.JOBS_PAGE = true;
 const { h } = U;
 const S = { jobs: [], sel: null, checked: [], meta: { recipes: [], tiers: null, conditions: [], default_ref: "" }, detail: null, tab: "laps", clipCell: null, mode: null,
-  timer: null, tier: "smoke", where: "local", paramsTouched: false, cells: {}, slice: {}, armed: null, armTimer: null, f: { q: "", tier: "", where: "" } };
+  timer: null, tier: "smoke", where: "ideas", paramsTouched: false, cells: {}, slice: {}, armed: null, armTimer: null, f: { q: "", tier: "", where: "" } };
 const main = document.getElementById("main");
 const ACTIVE = ["building", "running"];
 const LINES = ["center", "line1", "line4"];
@@ -137,9 +137,10 @@ function delButton(id) {
 async function removeJob(id) {
   const d = document.querySelector(".head .del");
   if (d) d.disabled = true;
-  const r = await U.api("/api/jobs/" + encodeURIComponent(id), { method: "DELETE" });
+  const r = await U.api("/api/jobs/" + encodeURIComponent(id), { method: "DELETE", headers: { "X-Password": password() } });
   clearTimeout(S.armTimer);
   S.armed = null;
+  if (r.status === 403) F("f-pass").value = "";   // asked again next time
   if (!r.ok) { const e = document.querySelector(".head .del"); if (e) e.replaceWith(delButton(id)); return; }
   S.checked = S.checked.filter((x) => x !== id);
   if (S.sel === id) { S.sel = null; setUrl({}); emptyMain(); }
@@ -387,15 +388,13 @@ function setSeg(id, v) {
   for (const b of F(id).querySelectorAll("button")) b.classList.toggle("on", b.dataset.v === v);
 }
 
+function password() {   // the submit gate's password, asked for once when the server sets one
+  if (S.meta.password && !F("f-pass").value) F("f-pass").value = prompt("Password") || "";
+  return F("f-pass").value;
+}
+
 function updateEst() {
-  const modal = F("f-where").querySelector('[value="modal"]');
-  modal.disabled = S.tier !== "smoke";
-  if (S.tier !== "smoke" && S.where === "modal") S.where = "local";
-  const mgpu = F("f-where").querySelector('[value="modal-gpu"]');
-  mgpu.disabled = S.tier === "large";
-  if (S.tier === "large" && S.where === "modal-gpu") S.where = "local";
   setSeg("f-tier", S.tier);
-  F("f-where").value = S.where;
   const t = S.meta.tiers && S.meta.tiers[S.tier];
   if (!t || t.episodes === null) { F("est-n").textContent = "\u2013 episodes"; F("est-c").textContent = ""; return; }
   F("est-n").textContent = t.episodes + " episodes";
@@ -407,6 +406,7 @@ function openPanel() {
   if (!F("f-ref").value) F("f-ref").value = S.meta.default_ref;
   F("f-ref").scrollLeft = F("f-ref").scrollWidth;
   try { if (!F("f-user").value) F("f-user").value = localStorage.getItem("evc.user") || ""; } catch (e) { /* storage blocked */ }
+  panel.querySelector('.field[data-f="password"]').hidden = !S.meta.password;
   updateEst();
   F("f-recipe").focus();
 }
@@ -415,10 +415,10 @@ function closePanel() { panel.hidden = true; }
 async function submit() {
   const params = checkParams();
   const body = { recipe_name: F("f-recipe").value, ref: F("f-ref").value, params: params === undefined ? F("f-params").value : params,
-    tier: S.tier, where: S.where, user: F("f-user").value, notes: F("f-notes").value };
+    tier: S.tier, where: S.where, user: F("f-user").value, notes: F("f-notes").value, password: F("f-pass").value };
   const rec = S.meta.recipes.find((x) => x.name === body.recipe_name);
   if (rec && rec.sim) body.sim = rec.sim;   // sim options (CUDA, canaries) come only from a config recipe
-  for (const f of ["recipe_name", "ref", "user", "tier", "where"]) fieldError(f, null);
+  for (const f of ["recipe_name", "ref", "user", "tier", "where", "password"]) fieldError(f, null);
   const r = await U.api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) {
     for (const [f, m] of Object.entries((r.body && r.body.errors) || {})) fieldError(f, m);
@@ -442,15 +442,14 @@ function wirePanel() {
     const r = S.meta.recipes.find((x) => x.name === F("f-recipe").value);
     if (r && !S.paramsTouched) {
       F("f-params").value = JSON.stringify(r.params, null, 2);
-      F("f-ref").value = r.source.ref;
+      if (!r.source.ref.startsWith("worktree:") || S.meta.worktrees) F("f-ref").value = r.source.ref;   // a server without the worktrees keeps the git ref
       F("f-ref").scrollLeft = F("f-ref").scrollWidth;
       if (!F("f-notes").value) F("f-notes").value = r.notes;
       checkParams();
     }
   });
-  for (const id of ["f-ref", "f-user"]) F(id).addEventListener("input", () => fieldError(id === "f-ref" ? "ref" : "user", null));
+  for (const [id, f] of [["f-ref", "ref"], ["f-user", "user"], ["f-pass", "password"]]) F(id).addEventListener("input", () => fieldError(f, null));
   F("f-tier").addEventListener("click", (e) => { if (e.target.dataset.v) { S.tier = e.target.dataset.v; updateEst(); } });
-  F("f-where").addEventListener("change", () => { S.where = F("f-where").value; fieldError("where", null); updateEst(); });
   F("submit").addEventListener("click", submit);
   F("form").addEventListener("submit", (e) => { e.preventDefault(); submit(); });
 }
