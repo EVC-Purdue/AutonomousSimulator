@@ -345,3 +345,41 @@ input[type=checkbox]:disabled { opacity: .3; cursor: default; }
 .lb th:last-child, .lb td:last-child { padding-right: 0; }
 .lb tr.old td, .lb tr.old td.rec { color: #A3A5AB; }
 .lb .oldm { display: inline-block; width: 6px; height: 6px; border-radius: 50%; border: 1px solid #A3A5AB; margin-left: 6px; vertical-align: 2px; }
+
+/* phone */
+@media (max-width: 700px) {
+  .top { padding: 0 16px; gap: 20px; }
+  .top nav { gap: 20px; }
+  .jobs { display: block; height: auto; }
+  .list { border-right: 0; max-height: 360px; border-bottom: 1px solid var(--line); }
+  #rows { -webkit-overflow-scrolling: touch; }
+  #main { overflow: visible; }
+  .pad, .board { padding: 16px 16px 40px; }
+  .empty { padding: 40px 0; }
+  .panel { position: fixed; top: 48px; width: 100%; border-left: 0; }
+  .panel .ph, .panel form, .panel .pf { padding-left: 16px; padding-right: 16px; }
+  .field input[type=text], .field input[type=password] { font-size: 16px; }
+  .list-head input { font-size: 16px; }
+  .row .chk { visibility: visible; }
+  .btn, .list-head input, .list-filt select, .vbar select, .filt select, .vbar .ib { height: 40px; }
+  .x, .vbar .ib { min-width: 40px; height: 40px; }
+  .seg button { height: 34px; }
+  .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 12px; }
+  .tile, .tile:nth-child(5n+1) { padding: 0; border-left: 0; }
+  .tile.osc { grid-column: 1 / -1; }
+  .tile .v { font-size: 24px; line-height: 32px; }
+  .tiles { row-gap: 16px; }
+  .ctiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ctile, .ctile:nth-child(5n+1) { padding: 0 16px; border-left: 1px solid var(--line); }
+  .ctile:nth-child(2n+1) { border-left: 0; padding-left: 0; }
+  .filt select { width: calc(50% - 4px); }
+  .vbody { grid-template-columns: 1fr; }
+  #d-break, #c-break { overflow-x: auto; }
+  .vbar .out { margin-left: 0; width: 100%; }
+  .chart .ch, .chart.strip .ch { gap: 10px; }
+  .board { overflow-x: auto; }
+  .lbbar { position: sticky; left: 0; }
+  .lb thead tr:first-child th:first-child, .lb td:first-child { position: sticky; left: 0; z-index: 1; background: var(--white);
+    padding-right: 12px; max-width: 150px; box-shadow: -16px 0 0 var(--white); }
+  .lb td.notes, .lb th[data-key="notes"], .lb td.user, .lb th[data-key="user"] { display: none; }
+}
