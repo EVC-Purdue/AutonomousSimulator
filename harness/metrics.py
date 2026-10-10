@@ -7,6 +7,38 @@ from harness.failures import DEFAULT_THR, _footprint, _spin, _wrap, context_vali
 OSC_SMOOTH_S, OSC_BIAS_S, OSC_LAG_S, OSC_HZ = 0.16, 5.0, 0.1, 50.0  # AutonomousKart sim/clip_index.py weave
 
 
+CTE_EDGES = np.r_[0.0, np.geomspace(0.01, 10.0, 96)]   # |CTE| bins (m), about 7% wide; a record carries counts, not samples
+
+
+def cte_hist(a):
+    """Counts of |CTE| per CTE_EDGES bin, the last bin open-ended."""
+    return np.bincount(np.clip(np.searchsorted(CTE_EDGES, a, side="right") - 1, 0, len(CTE_EDGES) - 1),
+                       minlength=len(CTE_EDGES)).tolist()
+
+
+def hist_percentile(counts, q):
+    """Percentile q of a cte_hist, linear inside its bin; the open last bin reports its lower edge."""
+    c = np.cumsum(counts)
+    i = int(np.searchsorted(c, q / 100 * c[-1]))
+    i = min(i, len(counts) - 1)
+    hi = CTE_EDGES[i + 1] if i + 1 < len(CTE_EDGES) else CTE_EDGES[i]
+    below = c[i - 1] if i else 0
+    return float(CTE_EDGES[i] + (hi - CTE_EDGES[i]) * (q / 100 * c[-1] - below) / max(counts[i], 1))
+
+
+def loc_stats(rows):
+    """Autonomous-phase EKF position error after the first odom: tick count, sum of squares (m^2), RMS and p95 (m)."""
+    first = next((i for i, r in enumerate(rows) if r.get("ekf_err_m")), None)   # 0.0 until the first odom
+    if first is None:
+        return None
+    d = np.asarray([r["ekf_err_m"] for r in rows[first:] if r.get("ekf_err_m") is not None
+                    and r.get("phase", 2 if r["auto"] else 1) == 2], float)
+    if not len(d):
+        return None
+    return {"n": len(d), "ss": float(np.sum(d * d)), "rms": round(float(np.sqrt(np.mean(d * d))), 3),
+            "p95": round(float(np.percentile(d, 95)), 3)}
+
+
 def zigzag_swings(x, thresh):
     """Peak-to-peak reversals of at least thresh, each half-cycle counted once."""
     n, ext, up = 0, x[0] if len(x) else 0.0, True
@@ -83,7 +115,7 @@ def unsafe_ticks(log, m, track, peak_mu, thr):
 def compute(log, line, track, kind, handoff_t, peak_mu, thr=DEFAULT_THR):
     t = np.asarray(log["t"], float)
     m = (np.asarray(log["auto"]) > 0.5) & (t >= handoff_t)
-    out = {"auto_s": 0.0, "cte_samples": []}
+    out = {"auto_s": 0.0, "cte_hist": [0] * len(CTE_EDGES)}
     n = int(m.sum())
     if n == 0:
         return dict(out, cte_p50=None, cte_p90=None, cte_p95=None, cte_p99=None, cte_mean=None, off_track_pct=None,
@@ -100,7 +132,7 @@ def compute(log, line, track, kind, handoff_t, peak_mu, thr=DEFAULT_THR):
     osc = oscillations_per_min(t, log["yaw_rate"], log["vx"], kap, m)
     ta = t[m]
     keep = np.r_[True, np.diff(np.floor(ta * 20)) > 0]
-    out.update(auto_s=n * dt, cte_samples=a[keep].tolist(), cte_mean=float(a.mean()),
+    out.update(auto_s=n * dt, cte_hist=cte_hist(a[keep]), cte_mean=float(a.mean()),
                off_track_pct=float(100 * any_out.mean()), safety=float(ok.mean()),
                events=int((~ok[1:] & ok[:-1]).sum() + (0 if ok[0] else 1)), osc_10=osc[10], osc_20=osc[20],
                osc_30=osc[30], peak_cte_after_m=float(a.max()), **{"unsafe_" + c: float(u[c].mean()) for c in UNSAFE})
@@ -131,11 +163,12 @@ def _weighted(eps, key):
 
 
 def _stats(es):
-    cte = np.concatenate([np.asarray(e["cte_samples"], float) for e in es] + [np.zeros(0)])
+    h = np.sum([e["cte_hist"] if "cte_hist" in e else cte_hist(np.asarray(e["cte_samples"], float)) for e in es]
+               + [np.zeros(len(CTE_EDGES), int)], axis=0)   # records before cte_hist carry samples
     clips = [e for e in es if e["scenario"]["type"] == "clip"]
     rec_t = [e["recovery_s"] for e in clips if e.get("recovered") and e.get("recovery_s") is not None]
     att = sum(e.get("laps_attempted", 0) for e in es if e["scenario"]["type"] == "lap")
-    r = {f"cte_p{q}": float(np.percentile(cte, q)) if len(cte) else None for q in (50, 90, 99)}
+    r = {f"cte_p{q}": hist_percentile(h, q) if h.sum() else None for q in (50, 90, 99)}
     r["recovery_rate"] = sum(1 for e in clips if e.get("recovered")) / len(clips) if clips else None
     r["recovery_s_median"] = float(np.median(rec_t)) if rec_t else None
     r["safety"] = _weighted(es, "safety")

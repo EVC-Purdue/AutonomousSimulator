@@ -13,7 +13,7 @@ import yaml
 
 PKG = os.path.expanduser("~/PycharmProjects/AutonomousKart-sim/src/autonomous_kart")
 YAML = os.path.join(PKG, "autonomous_kart/params/pathfinder.yaml")
-EPISODE = glob.glob(os.path.join(os.path.dirname(__file__), "..", "results/episodes/78dd1b3249e2*"))  # kart1 center lap, job 20261005-164836
+EPISODE = glob.glob(os.path.join(os.path.dirname(__file__), "..", "results/episodes/78dd1b3249e2*/log.jsonl.gz"))  # kart1 center lap, job 20261005-164836
 CENTER = os.path.join(os.path.dirname(__file__), "..", "tracks/center.csv")
 
 
@@ -66,7 +66,7 @@ def test_published_plan_is_the_commanded_sequence_rollout(mpc_mod, s_target):
     params.update({"num_samples": 128, "residual.mode": "off", "residual.model_size": "s", "residual.cache_enabled": False})
     line = [tuple(map(float, r.split(",")[:6])) for r in open(CENTER).read().split()[1:]]
     p = mpc.MPCPlanner(params, kart, line)
-    rows = [json.loads(r) for r in gzip.open(os.path.join(EPISODE[0], "log.jsonl.gz"))]
+    rows = [json.loads(r) for r in gzip.open(EPISODE[0])]
     i_end = next(i for i, r in enumerate(rows) if r["auto"] and r["s"] >= s_target)
     for r in rows[i_end - 60:i_end + 1]:  # one second of logged ticks so the warm start is the planner's own
         p.delta_prev_before = p.delta_prev

@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 from harness import failures as F
 from harness import metrics as M
@@ -92,7 +93,7 @@ def test_aggregate_worst_kart_and_excludes_invalid():
            for k, v in (("kart1", 0.1), ("kart2", 0.5), ("kart3", 0.2))]
     eps.append(dict(eps[0], kart_name="kart1", scenario={"type": "clip"}, context_valid=False, cte_samples=[9.0] * 100))
     h = M.aggregate(eps, "worst")
-    assert abs(h["cte_p90"]["value"] - 0.5) < 1e-9 and h["cte_p90"]["worst_kart"] == "kart2"
+    assert h["cte_p90"]["value"] == pytest.approx(0.5, rel=0.08) and h["cte_p90"]["worst_kart"] == "kart2"   # histogram bins are ~7% wide
 
 
 def _lap(k, **kw):
@@ -136,14 +137,14 @@ def test_aggregate_averaged_pools_karts_and_worst_stays_available():
     eps += [clip, dict(clip, recovery_s=3.0), dict(clip, kart_name="kart2", recovered=False, recovery_s=None),
             dict(clip, kart_name="kart2", context_valid=False, recovered=True), _lap("kart3", status="error")]
     a = M.aggregate(eps)
-    assert a["cte_p50"]["value"] == 0.1 and a["cte_p50"]["worst_kart"] is None
-    assert a["cte_p50"]["per_kart"]["kart2"] == 0.5
+    assert a["cte_p50"]["value"] == pytest.approx(0.1, rel=0.08) and a["cte_p50"]["worst_kart"] is None
+    assert a["cte_p50"]["per_kart"]["kart2"] == pytest.approx(0.5, rel=0.08)
     assert abs(a["safety"]["value"] - (60 * 1.0 + 30 * 0.4 + 10 * 0.7 + 3 * 60 * 1.0) / 280) < 1e-9
     assert a["laps_pct"]["value"] == 50.0 and abs(a["recovery_rate"]["value"] - 2 / 3) < 1e-9
     assert a["recovery_s_median"]["value"] == 2.0 and a["failures"]["value"] == 1
     assert a["n"]["value"] == 8 and a["errors"]["value"] == 1
     w = M.aggregate(eps, "worst")
-    assert w["cte_p50"]["value"] == 0.5 and w["cte_p50"]["worst_kart"] == "kart2"
+    assert w["cte_p50"]["value"] == pytest.approx(0.5, rel=0.08) and w["cte_p50"]["worst_kart"] == "kart2"
     assert w["laps_pct"]["value"] == 0.0 and w["recovery_rate"]["value"] == 0.0
 
 

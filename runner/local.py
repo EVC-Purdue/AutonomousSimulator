@@ -280,6 +280,8 @@ class Runner:
             self._track = lines.load_track()
         m = metrics.compute(log, self._line(name), self._track, sc["type"], out["handoff_t"], out["peak_mu"],
                             metrics.thresholds(resolved))
+        loc = metrics.loc_stats(rows)
+        m.update(loc_n=loc and loc["n"], loc_ss=loc and loc["ss"])   # the log is not kept for most episodes
         return out, m
 
     def _record(self, jid, r, idx, memo=None):
@@ -297,7 +299,10 @@ class Runner:
             with open(os.path.join(store.episode_dir(key), "scoring_error.txt"), "w") as f:
                 f.write(traceback.format_exc())
             out, m = dict(store.outcome(key) or {}, status="error", cause="scoring"), {}
-        return store.record(jid, r, out, m, idx)
+            return store.record(jid, r, out, m, idx)
+        rec = store.record(jid, r, out, m, idx)
+        store.slim(key, r.get("tier"), (jobs.get(jid) or {}).get("total") or 0)   # scored: the record holds what the log did
+        return rec
 
     def _build_failed(self, jid, src=None, text=None):
         log = os.path.join(store.job_dir(jid), "build.log")
@@ -406,6 +411,7 @@ class Runner:
                             done += 1
                             errors += rec["status"] == "error"
                         self._set(jid, done=done, errors=errors)
+                        store._pack_logs(jid, final=False)   # logs go to HF as they arrive, not at the end
                 new = retry
                 if not new:
                     break

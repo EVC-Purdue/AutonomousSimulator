@@ -86,7 +86,7 @@ def main(argv=None):
         recipe = json.load(f)
     jid = a.job or jobs.submit(a.tier, recipe, a.user, a.notes, WHERE)
     if a.job:
-        store.write_json(os.path.join(store.job_dir(jid), "claim"), {"pid": os.getpid(), "host": "ideas-driver"})
+        store.write_json(os.path.join(store.job_dir(jid), "claim"), {"pid": os.getpid(), "host": "ideas-driver", "server": jobs.server_id()})
         scancel(*jobs.get(jid).get("slurm_ids", []))   # an earlier driver's launchers; their unpulled episodes rerun
     elif not jobs.claim(jid):
         sys.exit(f"{jid} was claimed by another runner")

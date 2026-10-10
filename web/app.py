@@ -136,17 +136,7 @@ def _unsafe(rows, kart, handoff_t, peak_mu):
     return out
 
 
-def _loc_stats(rows):
-    """Autonomous-phase EKF position error after the first odom: tick count, sum of squares (m^2), RMS and p95 (m)."""
-    first = next((i for i, r in enumerate(rows) if r.get("ekf_err_m")), None)   # 0.0 until the first odom
-    if first is None:
-        return None
-    d = np.asarray([r["ekf_err_m"] for r in rows[first:] if r.get("ekf_err_m") is not None
-                    and r.get("phase", 2 if r["auto"] else 1) == 2], float)
-    if not len(d):
-        return None
-    return {"n": len(d), "ss": float(np.sum(d * d)), "rms": round(float(np.sqrt(np.mean(d * d))), 3),
-            "p95": round(float(np.percentile(d, 95)), 3)}
+_loc_stats = metrics.loc_stats
 
 
 def _loc_episodes(job_id):
@@ -159,8 +149,11 @@ def _loc_episodes(job_id):
         if k in side:
             continue
         if "loc:" + k not in _cache:
-            s = _loc_stats(store.read_log(k)) if os.path.exists(os.path.join(store.episode_dir(k), "log.jsonl.gz")) else None
-            _cache["loc:" + k] = s and [s["n"], s["ss"]]
+            if "loc_n" in r:   # scored with the record: the log itself may be gone
+                _cache["loc:" + k] = r["loc_n"] and [r["loc_n"], r["loc_ss"]]
+            else:
+                s = _loc_stats(store.read_log(k)) if os.path.exists(os.path.join(store.episode_dir(k), "log.jsonl.gz")) else None
+                _cache["loc:" + k] = s and [s["n"], s["ss"]]
         side[k], added = _cache["loc:" + k], True
     if final and added:
         with open(path + ".tmp", "w") as f:
@@ -354,7 +347,7 @@ def create_app():
         sc = rec["scenario"]
         name = sc["line"] if sc["type"] == "lap" else clips.load(sc["clip_id"])["line"]
         log, unsafe, loc = {}, {c: [] for c in UNSAFE}, None
-        if os.path.exists(os.path.join(store.episode_dir(key), "log.jsonl.gz")):
+        if store.has_log(key):   # a local log, else the job's HF shard
             rows = store.read_log(key)
             rows = [r for r in rows if r.get("phase") != 0] or rows   # the viewer starts where the kart does: parked warm-up dropped
             if rows:

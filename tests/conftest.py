@@ -82,10 +82,17 @@ def fake_docker(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def hf_uploads(monkeypatch):
+def hf_uploads(monkeypatch, tmp_path):
     from runner import store
-    calls = []
-    monkeypatch.setattr(store, "hf_upload", lambda patterns, deletes=(): calls.append(patterns))
+    calls, hub = [], tmp_path / "hub"
+
+    def upload(patterns, deletes=()):   # a local stand-in for the HF repo, so shards can be read back
+        calls.append(patterns)
+        for p, f in store._upload_ops(patterns):
+            (hub / p).parent.mkdir(parents=True, exist_ok=True)
+            (hub / p).write_bytes(f if isinstance(f, bytes) else open(f, "rb").read())
+    monkeypatch.setattr(store, "hf_upload", upload)
+    monkeypatch.setattr(store, "hf_download", lambda path: str(hub / path))
     return calls
 
 
@@ -150,8 +157,10 @@ class FakeGautschi:
             return bad()
         if "nvcc" in cmd:
             return ok("built\n") if self.nvcc_ok else bad("mpc_cuda.cu: nvcc failed\n")
-        if cmd.startswith("test -f") and cmd.endswith(".cuda_ok"):
+        if cmd.startswith("test -f") and cmd.endswith((".cuda_ok", ".cuda_none")):
             return bad()
+        if cmd.startswith("touch") and cmd.endswith(".cuda_none"):
+            return ok()
         if "colcon build" in cmd:
             return ok("built\n") if self.build_ok else bad("colcon failed\n")
         if "sbatch --parsable" in cmd:

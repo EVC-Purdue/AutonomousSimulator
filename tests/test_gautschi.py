@@ -166,6 +166,15 @@ def test_recover_fails_a_dead_owners_job_and_scancels(tmp_results, gautschi_remo
     assert jobs.get(jid)["status"] == "failed" and "777" in gautschi_remote.cancelled
 
 
+def test_recover_leaves_a_mirrored_job_claimed_by_another_server(tmp_results, gautschi_remote):
+    jid = _job()
+    store.write_json(os.path.join(store.job_dir(jid), "claim"), {"pid": dead_pid(), "host": "mac", "server": "other"})
+    jobs.update(jid, status="running", slurm_id="777")
+    local.Runner(workers=1).recover()
+    assert jobs.get(jid)["status"] == "running" and gautschi_remote.cancelled == []
+    assert jobs.claim_owner(jid)["server"] == "other" and jobs.server_id() != "other"
+
+
 def test_reap_cancels_only_orphaned_sim_jobs(tmp_results, gautschi_remote):
     live, dead = _job(), _job()
     own(live, os.getpid())
@@ -232,6 +241,20 @@ def test_cuda_worker_gets_the_gpu_and_the_kernel():
     c = gautschi_launch.worker_cmd(3, "/w", "/o", "/e.json", "s.sif", "/e", "/s", gpu="1")
     assert "--nv" in c and "CUDA_VISIBLE_DEVICES=1" in c and "MPC_CUDA_LIB=" + gautschi_launch.CUDA_LIB in c
     assert "--nv" not in gautschi_launch.worker_cmd(3, "/w", "/o", "/e.json", "s.sif", "/e", "/s")
+
+
+def test_cpu_episode_gets_the_native_library_when_the_stack_has_it(tmp_path):
+    assert not any(a.startswith("MPC_CUDA_LIB=") for a in gautschi_launch.worker_cmd(3, "/w", "/o", "/e.json", "s.sif", "/e", str(tmp_path)))
+    os.makedirs(tmp_path / "mpc_cuda")
+    (tmp_path / "mpc_cuda" / "libmpc_cuda.so").write_bytes(b"")
+    c = gautschi_launch.worker_cmd(3, "/w", "/o", "/e.json", "s.sif", "/e", str(tmp_path))
+    assert "MPC_CUDA_LIB=" + gautschi_launch.CUDA_LIB in c and "--nv" not in c and not any(a.startswith("CUDA_VISIBLE") for a in c)
+
+
+def test_cpu_build_also_builds_the_kernel(tmp_results, fake_docker, gautschi_remote):
+    jid = jobs.submit("smoke", config.load("recipes", "mpc-cuda-8192"), "u", "m", "gautschi")
+    local.Runner(workers=1).run_once()
+    assert jobs.get(jid)["status"] == "done" and any("nvcc" in c[-1] for c in gautschi_remote.calls if c[0] == "ssh")
 
 
 def test_gpu_smoke_builds_the_kernel_and_runs(tmp_results, fake_docker, gautschi_remote):

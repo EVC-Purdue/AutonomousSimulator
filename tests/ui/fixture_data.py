@@ -215,6 +215,8 @@ def install(mp, n_clips=2, conditions=None):
     mp.setattr(local, "missing_sim_support", lambda ref, h: None, raising=False)
     mp.setattr(local, "resolve_ref", lambda ref: None, raising=False)
     mp.setattr(store, "hf_upload", lambda patterns, deletes=(): None)
+    mp.setattr(store, "FULL_LOG_TIERS", ("smoke", "dev"))   # the viewer fixtures open dev episodes
+    mp.setenv("AUTONOMOUS_SIM_HF_UPLOAD", "0")   # no HF here: logs stay local
     ids = clip_set(n_clips)
     mp.setattr(clips, "accepted_ids", lambda revision=None: ids)
     if conditions is not None:

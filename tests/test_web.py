@@ -511,6 +511,17 @@ def test_submit_ideas_takes_cuda_recipes(client):
     assert r.status_code == 200 and jobs.get(r.get_json()["id"])["where"] == "ideas"
 
 
+def test_submit_ideas_defaults_to_cuda(client):
+    c, ids = client
+    body = {"recipe_name": "i2", "ref": fixture_data.WT, "params": {}, "tier": "smoke", "user": "u", "notes": ""}
+    j = jobs.get(c.post("/api/jobs", json=dict(body, where="ideas")).get_json()["id"])
+    assert j["recipe"]["sim"] == {"cuda": True}
+    j = jobs.get(c.post("/api/jobs", json=dict(body, where="ideas", sim={"cuda": False})).get_json()["id"])
+    assert j["recipe"]["sim"] == {"cuda": False}
+    j = jobs.get(c.post("/api/jobs", json=dict(body, recipe_name="i3", where="local")).get_json()["id"])
+    assert "cuda" not in j["recipe"].get("sim", {})
+
+
 def test_meta_falls_back_to_main_without_the_worktrees(client, monkeypatch):
     from web import app as web_app
     c, ids = client

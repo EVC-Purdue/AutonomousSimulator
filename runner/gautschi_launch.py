@@ -20,6 +20,8 @@ def worker_cmd(i, work, out, ep, sif, engine, stack, gpu=None):
     """Private /tmp, HOME, /dev/shm, IPC, PIDs and loopback per episode, plus a distinct ROS_DOMAIN_ID per worker;
     gpu (a host CUDA device) adds the driver and the stack's CUDA MPC kernel."""
     cuda = ["--nv", "--env", f"CUDA_VISIBLE_DEVICES={gpu}", "--env", f"MPC_CUDA_LIB={CUDA_LIB}"] if gpu is not None else []
+    if gpu is None and os.path.exists(os.path.join(stack, "mpc_cuda", "libmpc_cuda.so")):
+        cuda = ["--env", f"MPC_CUDA_LIB={CUDA_LIB}"]   # CPU node: the library's native iLQR solve still loads; its MPPI falls back to numpy
     return ["apptainer", "exec", *cuda, "--contain", "--cleanenv", "--ipc", "--pid", "--net", "--network", "none", "--workdir", work,
             "--env", f"ROS_DOMAIN_ID={i + 1}", "--env", "ROS_HOME=/tmp/ros", "--env", "TMPDIR=/tmp",
             "--bind", f"{engine}:/opt/sim:ro", "--bind", f"{stack}:/ws:ro", "--bind", f"{out}:/out",

@@ -167,9 +167,10 @@ def test_simnode_batch_uses_the_given_key(tmp_path, monkeypatch):
     assert ran == [str(tmp_path / "out" / "k1")]
 
 
-def test_cached_episode_is_rescored_from_log(tmp_results, fake_docker):
+def test_cached_episode_is_rescored_from_log(tmp_results, fake_docker, monkeypatch):
     import json
     import os
+    monkeypatch.setenv("AUTONOMOUS_SIM_HF_UPLOAD", "0")   # logs stay local without HF; HF-only episodes reuse their record
     a = jobs.submit("smoke", recipe(), "u", "a")
     local.Runner(workers=1).run_once()
     path = os.path.join(store.job_dir(a), "episodes.jsonl")
@@ -350,3 +351,43 @@ def test_no_modal_package_skips_the_reap_and_hf_upload_can_be_off(tmp_results, m
     monkeypatch.setenv("AUTONOMOUS_SIM_HF_UPLOAD", "0")
     store._upload("x")
     assert hf_uploads == [] and not os.path.exists(os.path.join(store.RESULTS, "upload_pending.json"))
+
+
+def test_slim_keeps_a_record_only_except_sampled_failures(tmp_results):
+    import gzip
+    import json
+    import os
+
+    def ep(key, status):
+        d = store.episode_dir(key)
+        os.makedirs(os.path.join(d, "bag"))
+        with open(os.path.join(d, "outcome.json"), "w") as f:
+            json.dump({"status": status}, f)
+        rows = [{"t": i / 60, "x": 0.0} for i in range(60 * 30)]
+        for fn, data in (("log.jsonl.gz", rows), ("plan.jsonl.gz", [{"t": 0.5, "xy": [1], "cost": {"best": 1}},
+                                                                      {"t": 25.0, "xy": [2], "cost": {"best": 2}}])):
+            with gzip.open(os.path.join(d, fn), "wt") as f:
+                f.writelines(json.dumps(r) + "\n" for r in data)
+        open(os.path.join(d, "stack.log"), "w").write("stack")
+        return d
+    ok, failed, smoke = ep("0" * 64, "ok"), ep("00000000" + "1" * 56, "failed"), ep("2" * 64, "ok")
+    store.slim("0" * 64, "large", 10)
+    store.slim("00000000" + "1" * 56, "large", 10)
+    store.slim("2" * 64, "smoke", 10)
+    assert os.listdir(ok) == ["outcome.json"]
+    assert sorted(os.listdir(failed)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz", "stack.log.gz"]
+    rows = store.read_log("00000000" + "1" * 56)
+    assert rows[0]["t"] >= 30 - 1 / 60 - store.DETAIL_WINDOW_S and 195 <= len(rows) <= 201   # last 10 s at 20 Hz
+    assert store.read_plan("00000000" + "1" * 56) == [{"t": 25.0, "xy": [2]}]   # the window's plan, no costs
+    assert sorted(os.listdir(smoke)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz", "stack.log"]   # smoke: all but the bag
+
+
+def test_log_reads_back_from_an_older_jsonl_shard(tmp_results, monkeypatch, tmp_path):
+    import gzip
+    import json
+    shard = tmp_path / "old.jsonl.gz"
+    with gzip.open(shard, "wt") as f:
+        f.write(json.dumps({"key": "k1", "outcome": {}, "log": [{"t": 0.0}, {"t": 0.1}]}) + "\n")
+    monkeypatch.setattr(store, "index", lambda: {"k1": {"key": "k1", "job_id": "j", "shard": "jobs/j/logs/shard-0000.jsonl.gz"}})
+    monkeypatch.setattr(store, "hf_download", lambda path: str(shard))
+    assert store.has_log("k1") and store.read_log("k1") == [{"t": 0.0}, {"t": 0.1}] and store.read_plan("k1") == []

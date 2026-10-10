@@ -25,7 +25,7 @@ class FakeRemote:
 PLAN = {"t": 1.0, "planner": 2, "xy": [0.0, 1.0, 2.0, 3.0]}
 
 
-def test_modal_job_writes_results_like_local(tmp_results, fake_docker, monkeypatch):
+def test_modal_job_writes_results_like_local(tmp_results, fake_docker, monkeypatch, hf_uploads):
     fr = FakeRemote()
     monkeypatch.setattr(modal_app, "run_batch", fr)
     monkeypatch.setattr(modal_app.app, "run", contextlib.nullcontext)
@@ -40,11 +40,12 @@ def test_modal_job_writes_results_like_local(tmp_results, fake_docker, monkeypat
     assert len(recs) == 45 and all(r["status"] == "ok" for r in recs)
     assert all(r["cte_p90"] is not None for r in recs if r["scenario"]["type"] == "lap")
     for r in recs:
-        assert os.path.exists(os.path.join(store.episode_dir(r["key"]), "outcome.json"))
-        assert store.read_log(r["key"]) and store.read_plan(r["key"]) == [PLAN]
+        assert os.listdir(store.episode_dir(r["key"])) == ["outcome.json"]   # logs went to HF; only the outcome stays
     assert os.path.exists(os.path.join(store.job_dir(jid), "summary.json"))
-    with gzip.open(os.path.join(store.job_dir(jid), "logs", "shard-0000.jsonl.gz"), "rt") as f:
-        assert all(json.loads(line)["plan"] == [PLAN] for line in f)   # HF shards carry the plan too
+    assert hf_uploads[0] == ["jobs/%s/logs/shard-0000.tar" % jid]
+    shards = {e["shard"] for e in store.index().values() if e["job_id"] == jid}
+    assert shards == {f"jobs/{jid}/logs/shard-0000.tar"}
+    assert store.has_log(recs[0]["key"]) and store.read_log(recs[0]["key"]) and store.read_plan(recs[0]["key"]) == [PLAN]   # back from the shard
 
 
 def test_modal_job_other_ref_is_build_failed(tmp_results, fake_docker, monkeypatch):
@@ -212,7 +213,7 @@ def test_claim_records_the_owner(tmp_results):
     import socket
     jid = _modal_job()
     assert jobs.claim(jid)
-    assert jobs.claim_owner(jid) == {"pid": os.getpid(), "host": socket.gethostname()}
+    assert jobs.claim_owner(jid) == {"pid": os.getpid(), "host": socket.gethostname(), "server": jobs.server_id()}
 
 
 def test_modal_thread_reaps_periodically(tmp_results, monkeypatch, modal_cli):

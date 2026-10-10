@@ -72,13 +72,15 @@ def pull(src, dst, *excludes, timeout=None):
                 timeout=timeout)
 
 
-def pull_keys(src, dst, keys, timeout=None):
-    """Compressed rsync of only the named episode dirs under src (bags gzip about 5x; 2x faster measured)."""
+def pull_keys(src, dst, keys, timeout=None, slim=False):
+    """Compressed rsync of only the named episode dirs under src, never their bags (the log holds the same signals);
+    slim also leaves plans and stack logs behind."""
     with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
         f.write("".join(k + "\n" for k in keys))
         f.flush()
-        return _run(["rsync", "-a", "-r", "-z", f"--files-from={f.name}", "-e", " ".join(SSH), f"{HOST}:{src}", dst],
-                    timeout=timeout)
+        skip = ["bag/"] + (["plan.jsonl.gz", "stack.log"] if slim else [])
+        return _run(["rsync", "-a", "-r", "-z", f"--files-from={f.name}", *[f"--exclude={x}" for x in skip], "-e", " ".join(SSH),
+                     f"{HOST}:{src}", dst], timeout=timeout)
 
 
 def base_hash():
@@ -116,10 +118,11 @@ def image_engine(engine):
 
 def build_stack(ref, h, where="gautschi"):
     """colcon build of the recipe's src inside the SIF into AutoSim/stacks/<h> (bound at /ws), cached by .build_ok;
-    for gautschi-gpu also the CUDA MPC kernel into <h>/mpc_cuda, cached by .cuda_ok."""
+    plus the CUDA MPC kernel into <h>/mpc_cuda when the ref has one (required on gautschi-gpu), cached by .cuda_ok or .cuda_none."""
     d = f"AutoSim/stacks/{h}"
     gpu = where == "gautschi-gpu"
-    if ssh(f"test -f {d}/.build_ok").returncode == 0 and (not gpu or ssh(f"test -f {d}/.cuda_ok").returncode == 0):
+    if ssh(f"test -f {d}/.build_ok").returncode == 0 and (ssh(f"test -f {d}/.cuda_ok").returncode == 0 or
+                                                          not gpu and ssh(f"test -f {d}/.cuda_none").returncode == 0):
         return d
     os.makedirs(os.path.join(store.RESULTS, "builds"), exist_ok=True)
     log = os.path.join(store.RESULTS, "builds", h + ".log")
@@ -128,22 +131,25 @@ def build_stack(ref, h, where="gautschi"):
             root = ref[len("worktree:"):]
         else:
             root = tmp
-            for part in ("src", "cuda") if gpu else ("src",):
+            for part in ("src", "cuda"):
                 archive = subprocess.run(["git", "-C", local.AK_REPO, "archive", h, part], capture_output=True)
                 if archive.returncode == 0:
                     subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
         steps = [lambda: push(["src"], d, cwd=root),
                  lambda: ssh(f"apptainer exec --cleanenv --bind {d}:/ws {sif()} bash -lc 'source /opt/ros/humble/setup.bash"
                              f" && cd /ws && rm -rf build install && colcon build' && touch {d}/.build_ok")]
-        if gpu:
-            if not os.path.exists(os.path.join(root, "cuda", "mpc_cuda.cu")):
-                f.write(f"{ref} has no cuda/mpc_cuda.cu, so the CUDA MPC kernel cannot be built\n")
-                raise local.BuildError(log)
+        has_cuda = os.path.exists(os.path.join(root, "cuda", "mpc_cuda.cu"))
+        if gpu and not has_cuda:
+            f.write(f"{ref} has no cuda/mpc_cuda.cu, so the CUDA MPC kernel cannot be built\n")
+            raise local.BuildError(log)
+        if has_cuda:   # CPU nodes load it too, for the native iLQR solve
             steps += [lambda: push(["cuda"], d, cwd=root),
                       lambda: ssh(f"mkdir -p {d}/mpc_cuda && apptainer exec --cleanenv --bind {CUDA}:/usr/local/cuda"
                                   f" {sif()} /usr/local/cuda/bin/nvcc -DLIBRARY -O3 -arch={CUDA_ARCH} --shared"
                                   f" -Xcompiler -fPIC -cudart static -o {d}/mpc_cuda/libmpc_cuda.so {d}/cuda/mpc_cuda.cu"
                                   f" -I {d}/cuda && touch {d}/.cuda_ok")]
+        else:
+            steps.append(lambda: ssh(f"touch {d}/.cuda_none"))
         for step in steps:
             r = step()
             f.write(r.stdout + r.stderr)
@@ -254,7 +260,12 @@ class _Sync:
         new = sorted((keys & self.keys) - self.pulled)[:PULL_BATCH]
         eps = os.path.join(store.RESULTS, "episodes")
         if new:
-            pull_keys(f"{OUT}/{self.jid}/", eps + "/", new, timeout=POLL_TIMEOUT_S)
+            job = jobs.get(self.jid)
+            full = job["tier"] in store.FULL_LOG_TIERS
+            pull_keys(f"{OUT}/{self.jid}/", eps + "/", new, timeout=POLL_TIMEOUT_S, slim=not full)
+            sampled = [k for k in new if store.detailed(k, job["total"] or 0)]
+            if sampled and not full:   # only the sampled failures keep a plan and stack log (store.slim)
+                pull_keys(f"{OUT}/{self.jid}/", eps + "/", sampled, timeout=POLL_TIMEOUT_S, slim=False)
         got = {k for k in new if os.path.exists(os.path.join(eps, k, "outcome.json"))}
         self.pulled |= got
         self.stalls = self.stalls + 1 if new and not got else 0

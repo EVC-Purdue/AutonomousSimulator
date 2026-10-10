@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
 import threading
 import traceback
@@ -18,6 +19,11 @@ from harness.config import ROOT, cache_key, engine_version, load
 RESULTS = os.environ.get("AUTONOMOUS_SIM_RESULTS", os.path.join(ROOT, "results"))
 HF_REPO = "ShayManor/Sim_data"
 SHARD_SIZE = 50
+FLUSH_EPISODES = 500   # episodes waiting before a running job's logs go to HF in one commit
+HEAVY = ("log.jsonl.gz", "plan.jsonl.gz", "bag")   # removed locally once on HF; outcome and the small text logs stay
+FULL_LOG_TIERS = ("smoke",)   # the debugging tier keeps whole logs; bigger tiers keep records plus a sample of failures
+DETAIL_MAX = 1000   # about this many episodes per job keep a trimmed failure log
+DETAIL_WINDOW_S = 10.0   # a kept failure log: its last 10 s at 20 Hz
 _INDEX_LOCK = threading.Lock()   # index appends vs the shard rewrite in _pack_logs
 _SYNC_LOCK = threading.Lock()   # pending upload and delete lists, written by finishes and deletes
 OUTCOME_KEYS = ("status", "cause", "context_valid", "laps_completed", "laps_attempted", "wall_s", "sim_s", "t_end", "handoff_t")
@@ -118,18 +124,82 @@ def record(job_id, resolved, outcome, metrics, idx=None):
     return rec
 
 
+def hf_download(path):
+    """Local path of a file in the HF results repo (cached by huggingface_hub)."""
+    from huggingface_hub import hf_hub_download
+    return hf_hub_download(HF_REPO, path, repo_type="dataset")
+
+
+def _episode_file(key, name):
+    """An episode file, read from its HF shard once the local copy is gone; FileNotFoundError when neither has it."""
+    path = os.path.join(episode_dir(key), name)
+    if os.path.exists(path):
+        with open(path, "rb") as f:
+            return f.read()
+    shard = (index().get(key) or {}).get("shard") or ""
+    if shard.endswith(".jsonl.gz") and name in ("log.jsonl.gz", "plan.jsonl.gz"):   # the older shard format: one JSON row per episode
+        with gzip.open(hf_download("results/" + shard), "rt") as f:
+            for line in f:
+                if line.startswith('{"key": "%s"' % key):
+                    rows = json.loads(line).get(name.split(".")[0]) or []   # the oldest shards carry no plan
+                    return gzip.compress("".join(json.dumps(r) + "\n" for r in rows).encode())
+        raise FileNotFoundError(path)
+    if not shard.endswith(".tar"):
+        raise FileNotFoundError(path)
+    with tarfile.open(hf_download("results/" + shard)) as tar:
+        try:
+            return tar.extractfile(f"{key}/{name}").read()
+        except KeyError:
+            raise FileNotFoundError(path) from None
+
+
+def detailed(key, total):
+    """A failed episode inside the job's sample (about DETAIL_MAX per job, picked by key) keeps a trimmed log."""
+    return (outcome(key) or {}).get("status") != "ok" and int(key[:8], 16) % max(1, total // DETAIL_MAX) == 0
+
+
+def slim(key, tier, total):
+    """Drops what the scored record already holds, so a run is megabytes: no bag; a success, or a failure outside the
+    sample, keeps only outcome.json; a sampled failure keeps its last DETAIL_WINDOW_S of log at 20 Hz, that window's plan
+    rows without costs, and its stack log gzipped. smoke keeps everything but the bag."""
+    d = episode_dir(key)
+    shutil.rmtree(os.path.join(d, "bag"), ignore_errors=True)
+    if tier in FULL_LOG_TIERS or not os.path.exists(os.path.join(d, "log.jsonl.gz")):
+        return
+    if not detailed(key, total):
+        for fn in ("log.jsonl.gz", "plan.jsonl.gz", "stack.log"):
+            if os.path.exists(os.path.join(d, fn)):
+                os.remove(os.path.join(d, fn))
+        return
+    rows = read_log(key)
+    end = rows[-1]["t"] - DETAIL_WINDOW_S if rows else 0.0
+    rows = [r for i, r in enumerate(rows) if r["t"] >= end and (i == 0 or int(r["t"] * 20) != int(rows[i - 1]["t"] * 20))]
+    plans = [{k: v for k, v in p.items() if k != "cost"} for p in read_plan(key) if p["t"] >= end]
+    for fn, data in (("log.jsonl.gz", rows), ("plan.jsonl.gz", plans)):
+        with gzip.open(os.path.join(d, fn), "wt") as f:
+            f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in data)
+    if os.path.exists(os.path.join(d, "stack.log")):
+        with open(os.path.join(d, "stack.log"), "rb") as src, gzip.open(os.path.join(d, "stack.log.gz"), "wb") as dst:
+            shutil.copyfileobj(src, dst)
+        os.remove(os.path.join(d, "stack.log"))
+
+
+def has_log(key):
+    """True when the episode's log is here or in an HF shard."""
+    return os.path.exists(os.path.join(episode_dir(key), "log.jsonl.gz")) or bool((index().get(key) or {}).get("shard"))
+
+
 def read_log(key):
-    with gzip.open(os.path.join(episode_dir(key), "log.jsonl.gz"), "rt") as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return [json.loads(line) for line in gzip.decompress(_episode_file(key, "log.jsonl.gz")).decode().splitlines() if line.strip()]
 
 
 def read_plan(key):
     """The planner's intended path at 20 Hz (simnode.episode.record_plan rows); empty for episodes without one."""
-    path = os.path.join(episode_dir(key), "plan.jsonl.gz")
-    if not os.path.exists(path):
+    try:
+        data = _episode_file(key, "plan.jsonl.gz")
+    except FileNotFoundError:
         return []
-    with gzip.open(path, "rt") as f:
-        return [json.loads(line) for line in f if line.strip()]
+    return [json.loads(line) for line in gzip.decompress(data).decode().splitlines() if line.strip()]
 
 
 def lap_line(sc):
@@ -227,18 +297,27 @@ def leaderboard(sort="cte_p90", dir="asc", tier="dev"):
     return out
 
 
-def _pack_logs(job_id):
-    own = [k for k, e in index().items() if e["job_id"] == job_id]
-    order = [r["key"] for r in episodes(job_id) if r["key"] in set(own)]
-    shards = {}
+def _pack_logs(job_id, final=True):
+    """Tars the job's not yet packed episode files (log, plan, outcome, a failed run's bag) as stored, SHARD_SIZE
+    episodes per shard; while running (final False) only full shards, once FLUSH_EPISODES wait. With HF upload on,
+    the shards go to HF and the local logs, plans and bags are removed: logs live on HF, not on this machine."""
+    mine = [e for e in read_jsonl(_index_path()) if e["job_id"] == job_id]
+    waiting = [e["key"] for e in mine if not e.get("shard") and os.path.exists(os.path.join(episode_dir(e["key"]), "log.jsonl.gz"))]
+    if not final:
+        if len(waiting) < FLUSH_EPISODES:
+            return
+        waiting = waiting[:len(waiting) // SHARD_SIZE * SHARD_SIZE]
+    first = len({e["shard"] for e in mine if e.get("shard")})
+    shards, names = {}, []
     logs = os.path.join(job_dir(job_id), "logs")
     os.makedirs(logs, exist_ok=True)
-    for n in range(0, len(order), SHARD_SIZE):
-        name = f"shard-{n // SHARD_SIZE:04d}.jsonl.gz"
-        with gzip.open(os.path.join(logs, name), "wt") as f:
-            for key in order[n:n + SHARD_SIZE]:
-                f.write(json.dumps({"key": key, "outcome": outcome(key), "log": read_log(key), "plan": read_plan(key)}) + "\n")
+    for n in range(0, len(waiting), SHARD_SIZE):
+        name = f"shard-{first + n // SHARD_SIZE:04d}.tar"
+        with tarfile.open(os.path.join(logs, name), "w") as tar:   # files are already gzipped: no re-encoding
+            for key in waiting[n:n + SHARD_SIZE]:
+                tar.add(episode_dir(key), arcname=key)
                 shards[key] = f"jobs/{job_id}/logs/{name}"
+        names.append(name)
     with _INDEX_LOCK:
         entries = read_jsonl(_index_path())
         for e in entries:
@@ -248,6 +327,22 @@ def _pack_logs(job_id):
         with open(tmp, "w") as f:
             f.writelines(json.dumps(e) + "\n" for e in entries)
         os.replace(tmp, _index_path())
+    if not names or os.environ.get("AUTONOMOUS_SIM_HF_UPLOAD", "1") == "0":
+        return
+    try:
+        hf_upload([f"jobs/{job_id}/logs/{name}" for name in names])
+    except Exception:
+        traceback.print_exc(file=sys.stderr)   # the shards stay local and go up with the job at finish
+        return
+    for name in names:
+        os.remove(os.path.join(logs, name))
+    for key in shards:
+        for fn in HEAVY:
+            path = os.path.join(episode_dir(key), fn)
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            elif os.path.exists(path):
+                os.remove(path)
 
 
 def _public_job(path):

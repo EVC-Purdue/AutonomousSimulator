@@ -7,6 +7,7 @@ import socket
 import statistics
 import threading
 import time
+import uuid
 
 from harness import clips, config, metrics
 from runner import store
@@ -40,6 +41,8 @@ def submit(tier, recipe, user, notes, where="local"):
         if commit:
             recipe = dict(recipe, source=dict(recipe["source"], commit=commit))
     local.check_params(recipe["source"].get("commit") or recipe["source"]["ref"], recipe["params"])
+    if where == "ideas" and "cuda" not in recipe.get("sim", {}):
+        recipe = dict(recipe, sim={**recipe.get("sim", {}), "cuda": True})   # ideas8 has a GPU; without it the MPC (telemetry under pure pursuit too) runs in numpy, ~17x slower
     stem = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + re.sub(r"[^A-Za-z0-9_.-]", "_", recipe["name"])
     job_id, n = stem, 1
     while True:
@@ -56,12 +59,30 @@ def submit(tier, recipe, user, notes, where="local"):
     return job_id
 
 
+def server_id():
+    """This results store's id, made on first use; a claim carries it so a mirror of the records can tell its own jobs apart."""
+    path = os.path.join(store.RESULTS, "server_id")
+    if not os.path.exists(path):
+        os.makedirs(store.RESULTS, exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.{threading.get_ident()}"
+        with open(tmp, "w") as f:
+            f.write(uuid.uuid4().hex)
+        try:
+            os.link(tmp, path)   # the first writer wins, so concurrent first calls agree
+        except FileExistsError:
+            pass
+        finally:
+            os.remove(tmp)
+    with open(path) as f:
+        return f.read().strip()
+
+
 def claim(job_id):
     """Atomically marks the job taken by this process (pid and host); False when another runner holds it."""
     path = os.path.join(store.job_dir(job_id), "claim")
     tmp = f"{path}.{os.getpid()}.{threading.get_ident()}"
     with open(tmp, "w") as f:
-        json.dump({"pid": os.getpid(), "host": socket.gethostname()}, f)
+        json.dump({"pid": os.getpid(), "host": socket.gethostname(), "server": server_id()}, f)
     try:
         os.link(tmp, path)   # atomic, and the claim is never seen half written
         return True
@@ -86,6 +107,8 @@ def owner_alive(owner):
     """True while the claiming pid runs; host is kept for diagnosis only, since macOS hostnames change with the network."""
     if not owner or "pid" not in owner:
         return False
+    if owner.get("server", server_id()) != server_id():
+        return True   # claimed by another server (these records are a mirror): its pid is not on this machine, and the job is not ours to reap
     try:
         os.kill(owner["pid"], 0)
     except ProcessLookupError:
