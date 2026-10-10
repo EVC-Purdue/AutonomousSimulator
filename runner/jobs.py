@@ -1,5 +1,6 @@
 """Job records: submit, list, progress and ETA, headline and breakdown."""
 import datetime
+import functools
 import json
 import os
 import re
@@ -161,10 +162,15 @@ def progress(job_id):
     return {"done": job["done"], "total": job["total"], "eta_s": eta, "status": job["status"]}
 
 
+@functools.lru_cache(maxsize=None)
+def _clip_cls(clip_id):
+    return clips.load(clip_id)["cls"]   # once per clip, not once per episode
+
+
 def _facets(rec):
     sc = rec["scenario"]
     return {"kart": rec["kart_name"], "line": sc.get("line") if sc["type"] == "lap" else None,
-            "condition": rec["condition"], "cls": clips.load(sc["clip_id"])["cls"] if sc["type"] == "clip" else None,
+            "condition": rec["condition"], "cls": _clip_cls(sc["clip_id"]) if sc["type"] == "clip" else None,
             "cap": str(sc["speed_cap"]) if "speed_cap" in sc else None}   # str: slice values arrive as query strings
 
 

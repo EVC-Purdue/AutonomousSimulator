@@ -421,3 +421,13 @@ def test_last_episodes_reads_only_the_tail(tmp_results):
     assert [r["key"] for r in store.last_episodes("j", 3)] == ["497", "498", "499"]
     assert [r["key"] for r in store.last_episodes("j", 600)][0] == "0" and len(store.last_episodes("j", 600)) == 500
     assert store.last_episodes("missing", 5) == []
+
+
+def test_upload_takes_a_snapshot_of_append_only_files(tmp_results):
+    import os
+    os.makedirs(os.path.join(store.RESULTS, "index"))
+    path = os.path.join(store.RESULTS, "index", "episodes.jsonl")
+    open(path, "w").write('{"key": "a"}\n')
+    ops = dict(store._upload_ops(["index/episodes.jsonl"]))
+    open(path, "a").write('{"key": "b"}\n')   # an append mid-upload does not change what goes up
+    assert ops["results/index/episodes.jsonl"] == b'{"key": "a"}\n'

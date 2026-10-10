@@ -393,6 +393,12 @@ def _public_job(path):
     return json.dumps(job, indent=1).encode()
 
 
+def _snapshot(path):
+    """An append-only file's bytes, read once: uploading the path itself fails when an append lands mid-upload."""
+    with open(path, "rb") as f:
+        return f.read()
+
+
 def _upload_ops(patterns):
     """(path in repo, file path or bytes) for every results file matching patterns; job.json without host paths."""
     ops = []
@@ -402,7 +408,7 @@ def _upload_ops(patterns):
                 path = os.path.join(dp, fn)
                 rel = os.path.relpath(path, RESULTS)
                 if fn != "claim" and not fn.endswith(".tmp") and any(fnmatch.fnmatch(rel, p) for p in patterns):
-                    ops.append(("results/" + rel, _public_job(path) if fn == "job.json" else path))
+                    ops.append(("results/" + rel, _public_job(path) if fn == "job.json" else _snapshot(path) if fn.endswith(".jsonl") else path))
     return ops
 
 
