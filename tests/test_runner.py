@@ -353,7 +353,7 @@ def test_no_modal_package_skips_the_reap_and_hf_upload_can_be_off(tmp_results, m
     assert hf_uploads == [] and not os.path.exists(os.path.join(store.RESULTS, "upload_pending.json"))
 
 
-def test_slim_keeps_a_record_only_except_sampled_failures(tmp_results):
+def test_slim_keeps_a_20hz_log_and_plans_only_for_sampled_failures(tmp_results):
     import gzip
     import json
     import os
@@ -374,10 +374,11 @@ def test_slim_keeps_a_record_only_except_sampled_failures(tmp_results):
     store.slim("0" * 64, "large", 10)
     store.slim("00000000" + "1" * 56, "large", 10)
     store.slim("2" * 64, "smoke", 10)
-    assert os.listdir(ok) == ["outcome.json"]
+    assert sorted(os.listdir(ok)) == ["log.jsonl.gz", "outcome.json"]
     assert sorted(os.listdir(failed)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz", "stack.log.gz"]
-    rows = store.read_log("00000000" + "1" * 56)
-    assert rows[0]["t"] >= 30 - 1 / 60 - store.DETAIL_WINDOW_S and 195 <= len(rows) <= 201   # last 10 s at 20 Hz
+    for key in ("0" * 64, "00000000" + "1" * 56):
+        rows = store.read_log(key)
+        assert rows[0]["t"] == 0 and len(rows) == 600   # the whole episode at 20 Hz
     assert store.read_plan("00000000" + "1" * 56) == [{"t": 25.0, "xy": [2]}]   # the window's plan, no costs
     assert sorted(os.listdir(smoke)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz", "stack.log"]   # smoke: all but the bag
 
@@ -391,3 +392,21 @@ def test_log_reads_back_from_an_older_jsonl_shard(tmp_results, monkeypatch, tmp_
     monkeypatch.setattr(store, "index", lambda: {"k1": {"key": "k1", "job_id": "j", "shard": "jobs/j/logs/shard-0000.jsonl.gz"}})
     monkeypatch.setattr(store, "hf_download", lambda path: str(shard))
     assert store.has_log("k1") and store.read_log("k1") == [{"t": 0.0}, {"t": 0.1}] and store.read_plan("k1") == []
+
+
+def test_log_of_a_mirrored_job_is_found_through_the_hf_index(tmp_results, monkeypatch, tmp_path):
+    import gzip
+    import io
+    import json
+    import tarfile
+    shard, idx = tmp_path / "shard-0000.tar", tmp_path / "episodes.jsonl"
+    data = gzip.compress(b'{"t": 0.0}\n')
+    with tarfile.open(shard, "w") as tar:
+        info = tarfile.TarInfo("k1/log.jsonl.gz")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    idx.write_text(json.dumps({"key": "k1", "job_id": "j", "shard": "jobs/j/logs/shard-0000.tar"}) + "\n")
+    files = {"results/index/episodes.jsonl": str(idx), "results/jobs/j/logs/shard-0000.tar": str(shard)}
+    monkeypatch.setattr(store, "hf_download", lambda path: files[path])
+    assert "k1" not in store.index()   # another server ran it: this server's index has no entry
+    assert store.has_log("k1") and store.read_log("k1") == [{"t": 0.0}] and not store.has_log("k2")

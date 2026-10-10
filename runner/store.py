@@ -21,9 +21,9 @@ HF_REPO = "ShayManor/Sim_data"
 SHARD_SIZE = 50
 FLUSH_EPISODES = 500   # episodes waiting before a running job's logs go to HF in one commit
 HEAVY = ("log.jsonl.gz", "plan.jsonl.gz", "bag")   # removed locally once on HF; outcome and the small text logs stay
-FULL_LOG_TIERS = ("smoke",)   # the debugging tier keeps whole logs; bigger tiers keep records plus a sample of failures
-DETAIL_MAX = 1000   # about this many episodes per job keep a trimmed failure log
-DETAIL_WINDOW_S = 10.0   # a kept failure log: its last 10 s at 20 Hz
+FULL_LOG_TIERS = ("smoke",)   # the debugging tier keeps whole logs; bigger tiers keep 20 Hz logs plus a sample of failure plans
+DETAIL_MAX = 1000   # about this many failed episodes per job keep a plan and stack log
+DETAIL_WINDOW_S = 10.0   # a kept failure plan: its last 10 s
 _INDEX_LOCK = threading.Lock()   # index appends vs the shard rewrite in _pack_logs
 _SYNC_LOCK = threading.Lock()   # pending upload and delete lists, written by finishes and deletes
 OUTCOME_KEYS = ("status", "cause", "context_valid", "laps_completed", "laps_attempted", "wall_s", "sim_s", "t_end", "handoff_t")
@@ -130,13 +130,31 @@ def hf_download(path):
     return hf_hub_download(HF_REPO, path, repo_type="dataset")
 
 
+_HF_INDEX = {}   # the HF index, parsed once per revision
+
+
+def _shard(key):
+    """The key's log shard: this server's index, else the HF one (a job mirrored from another server)."""
+    shard = (index().get(key) or {}).get("shard")
+    if shard:
+        return shard
+    try:
+        path = hf_download("results/index/episodes.jsonl")
+    except Exception:
+        return None
+    if path not in _HF_INDEX:
+        _HF_INDEX.clear()
+        _HF_INDEX[path] = {e["key"]: e.get("shard") for e in read_jsonl(path)}
+    return _HF_INDEX[path].get(key)
+
+
 def _episode_file(key, name):
     """An episode file, read from its HF shard once the local copy is gone; FileNotFoundError when neither has it."""
     path = os.path.join(episode_dir(key), name)
     if os.path.exists(path):
         with open(path, "rb") as f:
             return f.read()
-    shard = (index().get(key) or {}).get("shard") or ""
+    shard = _shard(key) or ""
     if shard.endswith(".jsonl.gz") and name in ("log.jsonl.gz", "plan.jsonl.gz"):   # the older shard format: one JSON row per episode
         with gzip.open(hf_download("results/" + shard), "rt") as f:
             for line in f:
@@ -154,30 +172,31 @@ def _episode_file(key, name):
 
 
 def detailed(key, total):
-    """A failed episode inside the job's sample (about DETAIL_MAX per job, picked by key) keeps a trimmed log."""
+    """A failed episode inside the job's sample (about DETAIL_MAX per job, picked by key) keeps its plan and stack log."""
     return (outcome(key) or {}).get("status") != "ok" and int(key[:8], 16) % max(1, total // DETAIL_MAX) == 0
 
 
 def slim(key, tier, total):
-    """Drops what the scored record already holds, so a run is megabytes: no bag; a success, or a failure outside the
-    sample, keeps only outcome.json; a sampled failure keeps its last DETAIL_WINDOW_S of log at 20 Hz, that window's plan
-    rows without costs, and its stack log gzipped. smoke keeps everything but the bag."""
+    """Drops what the scored record already holds, so a run stays small: no bag, and the log at 20 Hz (what the viewer
+    draws); a sampled failure also keeps its last DETAIL_WINDOW_S of plan rows without costs and its stack log gzipped.
+    smoke keeps everything but the bag."""
     d = episode_dir(key)
     shutil.rmtree(os.path.join(d, "bag"), ignore_errors=True)
     if tier in FULL_LOG_TIERS or not os.path.exists(os.path.join(d, "log.jsonl.gz")):
         return
+    rows = read_log(key)
+    rows = [r for i, r in enumerate(rows) if i == 0 or int(r["t"] * 20) != int(rows[i - 1]["t"] * 20)]
+    with gzip.open(os.path.join(d, "log.jsonl.gz"), "wt") as f:
+        f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in rows)
     if not detailed(key, total):
-        for fn in ("log.jsonl.gz", "plan.jsonl.gz", "stack.log"):
+        for fn in ("plan.jsonl.gz", "stack.log"):
             if os.path.exists(os.path.join(d, fn)):
                 os.remove(os.path.join(d, fn))
         return
-    rows = read_log(key)
     end = rows[-1]["t"] - DETAIL_WINDOW_S if rows else 0.0
-    rows = [r for i, r in enumerate(rows) if r["t"] >= end and (i == 0 or int(r["t"] * 20) != int(rows[i - 1]["t"] * 20))]
     plans = [{k: v for k, v in p.items() if k != "cost"} for p in read_plan(key) if p["t"] >= end]
-    for fn, data in (("log.jsonl.gz", rows), ("plan.jsonl.gz", plans)):
-        with gzip.open(os.path.join(d, fn), "wt") as f:
-            f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in data)
+    with gzip.open(os.path.join(d, "plan.jsonl.gz"), "wt") as f:
+        f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in plans)
     if os.path.exists(os.path.join(d, "stack.log")):
         with open(os.path.join(d, "stack.log"), "rb") as src, gzip.open(os.path.join(d, "stack.log.gz"), "wb") as dst:
             shutil.copyfileobj(src, dst)
@@ -186,7 +205,7 @@ def slim(key, tier, total):
 
 def has_log(key):
     """True when the episode's log is here or in an HF shard."""
-    return os.path.exists(os.path.join(episode_dir(key), "log.jsonl.gz")) or bool((index().get(key) or {}).get("shard"))
+    return os.path.exists(os.path.join(episode_dir(key), "log.jsonl.gz")) or bool(_shard(key))
 
 
 def read_log(key):
@@ -330,7 +349,7 @@ def _pack_logs(job_id, final=True):
     if not names or os.environ.get("AUTONOMOUS_SIM_HF_UPLOAD", "1") == "0":
         return
     try:
-        hf_upload([f"jobs/{job_id}/logs/{name}" for name in names])
+        hf_upload([f"jobs/{job_id}/logs/{name}" for name in names] + ["index/episodes.jsonl"])   # the index: other servers find the shards
     except Exception:
         traceback.print_exc(file=sys.stderr)   # the shards stay local and go up with the job at finish
         return

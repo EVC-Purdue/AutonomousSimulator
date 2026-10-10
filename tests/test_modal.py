@@ -42,7 +42,7 @@ def test_modal_job_writes_results_like_local(tmp_results, fake_docker, monkeypat
     for r in recs:
         assert os.listdir(store.episode_dir(r["key"])) == ["outcome.json"]   # logs went to HF; only the outcome stays
     assert os.path.exists(os.path.join(store.job_dir(jid), "summary.json"))
-    assert hf_uploads[0] == ["jobs/%s/logs/shard-0000.tar" % jid]
+    assert hf_uploads[0] == ["jobs/%s/logs/shard-0000.tar" % jid, "index/episodes.jsonl"]
     shards = {e["shard"] for e in store.index().values() if e["job_id"] == jid}
     assert shards == {f"jobs/{jid}/logs/shard-0000.tar"}
     assert store.has_log(recs[0]["key"]) and store.read_log(recs[0]["key"]) and store.read_plan(recs[0]["key"]) == [PLAN]   # back from the shard
