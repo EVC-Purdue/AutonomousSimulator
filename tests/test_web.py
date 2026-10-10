@@ -23,8 +23,9 @@ def client(built, monkeypatch):
     root, ids = built
     monkeypatch.setattr(store, "RESULTS", str(root))
     fixture_data.install(monkeypatch, conditions=["nominal", "grip_low", "all_high"])
-    from web.app import create_app
-    return create_app().test_client(), ids
+    from web import app
+    monkeypatch.setattr(app, "_cache", {})   # each test starts without another's cached values
+    return app.create_app().test_client(), ids
 
 
 def test_pages(client):

@@ -464,14 +464,18 @@ def create_app():
         rate = CORES * CORE_S + GIB * GIB_S
         tier_info = {}
         for t in TIERS:
+            memo = "tier_n:" + json.dumps(config.load("tiers", t), sort_keys=True)   # expanding large is 32k episodes: once per tier config
             try:
-                n = len(tiers.expand(t, dummy))
+                if memo not in _cache:
+                    _cache[memo] = len(tiers.expand(t, dummy))
+                n = _cache[memo]
             except Exception:   # clips absent and not fetchable
                 tier_info[t] = {"episodes": None, "cost_usd": None}
                 continue
             tier_info[t] = {"episodes": n, "cost_usd": round(n * wall * rate, 4)}
-        for t in TIERS:
-            tier_info[t]["rows"] = len(store.leaderboard(tier=t))
+        done = jobs.list_jobs()
+        for t in TIERS:   # the leaderboard has one row per recipe with a finished job
+            tier_info[t]["rows"] = len({j["recipe"]["name"] for j in done if j["tier"] == t and j["status"] == "done"})
         ref = default["source"]["ref"] if default else ""
         return jsonify({"recipes": recipes, "default_ref": ref if _worktree_ok(ref) else "main", "refs": local.recent_refs(),
                         "worktrees": any(r["source"]["ref"].startswith("worktree:") and _worktree_ok(r["source"]["ref"]) for r in recipes),
