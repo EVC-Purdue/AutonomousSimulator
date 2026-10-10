@@ -99,6 +99,24 @@ def episodes(job_id):
     return read_jsonl(os.path.join(job_dir(job_id), "episodes.jsonl"))
 
 
+def last_episodes(job_id, n):
+    """The job's last n records, read from the end of episodes.jsonl (cheap while a big job runs)."""
+    path = os.path.join(job_dir(job_id), "episodes.jsonl")
+    if not os.path.exists(path):
+        return []
+    start = max(0, os.path.getsize(path) - n * 4096)
+    with open(path, "rb") as f:
+        f.seek(start)
+        lines = f.read().decode(errors="replace").splitlines()[1 if start else 0:][-n:]   # a mid-file start cuts the first line
+    out = []
+    for line in lines:
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            pass
+    return out
+
+
 def indexed_record(key, idx=None, memo=None):
     e = (index() if idx is None else idx).get(key)
     if e is None:

@@ -410,3 +410,14 @@ def test_log_of_a_mirrored_job_is_found_through_the_hf_index(tmp_results, monkey
     monkeypatch.setattr(store, "hf_download", lambda path: files[path])
     assert "k1" not in store.index()   # another server ran it: this server's index has no entry
     assert store.has_log("k1") and store.read_log("k1") == [{"t": 0.0}] and not store.has_log("k2")
+
+
+def test_last_episodes_reads_only_the_tail(tmp_results):
+    import json
+    import os
+    os.makedirs(store.job_dir("j"))
+    with open(os.path.join(store.job_dir("j"), "episodes.jsonl"), "w") as f:
+        f.writelines(json.dumps({"key": str(i), "pad": "x" * 3000}) + "\n" for i in range(500))
+    assert [r["key"] for r in store.last_episodes("j", 3)] == ["497", "498", "499"]
+    assert [r["key"] for r in store.last_episodes("j", 600)][0] == "0" and len(store.last_episodes("j", 600)) == 500
+    assert store.last_episodes("missing", 5) == []

@@ -154,7 +154,7 @@ def queued(where="local"):
 
 def progress(job_id):
     job = get(job_id)
-    walls = [r["wall_s"] for r in store.episodes(job_id) if r.get("wall_s") is not None]
+    walls = [r["wall_s"] for r in store.last_episodes(job_id, 200) if r.get("wall_s") is not None]   # polled every 2 s: no full read
     eta = None
     if job["total"] is not None and walls:
         eta = (job["total"] - job["done"]) * statistics.median(walls) / job.get("workers", 1)
@@ -179,7 +179,7 @@ def _faceted(job_id):
     stamp = (store.RESULTS, st.st_mtime_ns, st.st_size) if st else (store.RESULTS, None, None)
     if _memo.get(job_id, (None,))[0] != stamp:
         _memo[job_id] = (stamp, [(r, _facets(r)) for r in store.episodes(job_id)], {})
-        while len(_memo) > 8:   # bound memory: each entry holds a job's CTE samples
+        while len(_memo) > 3:   # bound memory: each entry holds a job's CTE samples
             _memo.pop(next(iter(_memo)))
     return _memo[job_id]
 
