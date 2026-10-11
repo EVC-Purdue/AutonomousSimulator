@@ -73,6 +73,11 @@ def resolve_episode(kart, condition, recipe, scenario, run_seed, tier):
     k = load("karts", kart)
     c = load("conditions", condition)
     r = recipe if isinstance(recipe, dict) else load("recipes", recipe)
+    if (r.get("params_by_kart") or {}).get(kart):  # this kart design's own overrides merge after the recipe params, so they enter the cache key
+        params = dict(r.get("params") or {})
+        for n, p in r["params_by_kart"][kart].items():
+            params[n] = {**params.get(n, {}), **p}
+        r = dict(r, params=params)
     item = "lap:" + scenario["line"] if scenario["type"] == "lap" else "clip:" + scenario["clip_id"]
     return {"kart": apply_overrides(k, c["overrides"]), "kart_name": kart, "condition": condition,
             "recipe": r, "scenario": scenario, "seed": episode_seed(run_seed, kart, condition, item),

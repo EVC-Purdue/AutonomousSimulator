@@ -272,6 +272,15 @@ def test_submit_rejects_unknown_ros_params(tmp_results):
         jobs.submit("smoke", dict(recipe(wt), params=good), "u", "x")
 
 
+def test_submit_checks_params_by_kart(tmp_results):
+    import pytest
+    wt = "worktree:" + local.os.path.expanduser("~/PycharmProjects/AutonomousKart-sim")
+    for bad in ({"kart1": {"pathfinder_node": {"nope": 1}}}, {"kart9": {"pathfinder_node": {"planner": "mpc"}}}):
+        with pytest.raises(ValueError):
+            jobs.submit("smoke", dict(recipe(wt), params_by_kart=bad), "u", "x")
+    jobs.submit("smoke", dict(recipe(wt), params_by_kart={"kart2": {"pathfinder_node": {"planner": "pure_pursuit"}}}), "u", "x")
+
+
 def test_stack_params_at_a_git_ref():
     p = local.stack_params("e6fc3c5")
     assert "planner" in p["pathfinder_node"] and "v_max_mps" in p["/**"]

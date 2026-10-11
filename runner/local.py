@@ -134,8 +134,12 @@ def stack_params(ref):
     return out
 
 
-def check_params(ref, params):
+def check_params(ref, params, by_kart=None):
     """Raises ValueError for a node or parameter the stack's YAML at ref does not declare."""
+    for kart, p in (by_kart or {}).items():  # per-kart-design overrides: a known kart, then the same checks
+        if not os.path.exists(os.path.join(config.CONFIGS, "karts", kart + ".json")):
+            raise ValueError(f"Unknown kart {kart}")
+        check_params(ref, p)
     if not params:
         return
     try:
