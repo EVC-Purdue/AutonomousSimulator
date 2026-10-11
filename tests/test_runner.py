@@ -362,7 +362,7 @@ def test_no_modal_package_skips_the_reap_and_hf_upload_can_be_off(tmp_results, m
     assert hf_uploads == [] and not os.path.exists(os.path.join(store.RESULTS, "upload_pending.json"))
 
 
-def test_slim_keeps_a_20hz_log_and_plans_only_for_sampled_failures(tmp_results):
+def test_slim_keeps_a_20hz_log_every_plan_at_10hz_and_stack_logs_only_for_sampled_failures(tmp_results):
     import gzip
     import json
     import os
@@ -373,8 +373,8 @@ def test_slim_keeps_a_20hz_log_and_plans_only_for_sampled_failures(tmp_results):
         with open(os.path.join(d, "outcome.json"), "w") as f:
             json.dump({"status": status}, f)
         rows = [{"t": i / 60, "x": 0.0} for i in range(60 * 30)]
-        for fn, data in (("log.jsonl.gz", rows), ("plan.jsonl.gz", [{"t": 0.5, "xy": [1], "cost": {"best": 1}},
-                                                                      {"t": 25.0, "xy": [2], "cost": {"best": 2}}])):
+        for fn, data in (("log.jsonl.gz", rows), ("plan.jsonl.gz", [{"t": i / 20, "planner": 2, "xy": [1.234, -5.0, 1.5, -4.9],
+                                                                       "cost": {"best": 1}} for i in range(20 * 30)])):
             with gzip.open(os.path.join(d, fn), "wt") as f:
                 f.writelines(json.dumps(r) + "\n" for r in data)
         open(os.path.join(d, "stack.log"), "w").write("stack")
@@ -383,12 +383,14 @@ def test_slim_keeps_a_20hz_log_and_plans_only_for_sampled_failures(tmp_results):
     store.slim("0" * 64, "large", 10)
     store.slim("00000000" + "1" * 56, "large", 10)
     store.slim("2" * 64, "smoke", 10)
-    assert sorted(os.listdir(ok)) == ["log.jsonl.gz", "outcome.json"]
+    assert sorted(os.listdir(ok)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz"]
     assert sorted(os.listdir(failed)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz", "stack.log.gz"]
     for key in ("0" * 64, "00000000" + "1" * 56):
         rows = store.read_log(key)
         assert rows[0]["t"] == 0 and len(rows) == 600   # the whole episode at 20 Hz
-    assert store.read_plan("00000000" + "1" * 56) == [{"t": 25.0, "xy": [2]}]   # the window's plan, no costs
+    for key in ("0" * 64, "00000000" + "1" * 56):
+        plans = store.read_plan(key)
+        assert len(plans) == 300 and plans[0] == {"t": 0.0, "planner": 2, "xy": [1.23, -5.0, 1.5, -4.9]}   # whole episode at 10 Hz, 1 cm, no costs
     assert sorted(os.listdir(smoke)) == ["log.jsonl.gz", "outcome.json", "plan.jsonl.gz", "stack.log"]   # smoke: all but the bag
 
 

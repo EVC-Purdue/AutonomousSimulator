@@ -22,8 +22,7 @@ SHARD_SIZE = 50
 FLUSH_EPISODES = 500   # episodes waiting before a running job's logs go to HF in one commit
 HEAVY = ("log.jsonl.gz", "plan.jsonl.gz", "bag")   # removed locally once on HF; outcome and the small text logs stay
 FULL_LOG_TIERS = ("smoke",)   # the debugging tier keeps whole logs; bigger tiers keep 20 Hz logs plus a sample of failure plans
-DETAIL_MAX = 1000   # about this many failed episodes per job keep a plan and stack log
-DETAIL_WINDOW_S = 10.0   # a kept failure plan: its last 10 s
+DETAIL_MAX = 1000   # about this many failed episodes per job keep a stack log
 _INDEX_LOCK = threading.Lock()   # index appends vs the shard rewrite in _pack_logs
 _SYNC_LOCK = threading.Lock()   # pending upload and delete lists, written by finishes and deletes
 OUTCOME_KEYS = ("status", "cause", "context_valid", "laps_completed", "laps_attempted", "wall_s", "sim_s", "t_end", "handoff_t")
@@ -190,13 +189,13 @@ def _episode_file(key, name):
 
 
 def detailed(key, total):
-    """A failed episode inside the job's sample (about DETAIL_MAX per job, picked by key) keeps its plan and stack log."""
+    """A failed episode inside the job's sample (about DETAIL_MAX per job, picked by key) keeps its stack log."""
     return (outcome(key) or {}).get("status") != "ok" and int(key[:8], 16) % max(1, total // DETAIL_MAX) == 0
 
 
 def slim(key, tier, total):
     """Drops what the scored record already holds, so a run stays small: no bag, and the log at 20 Hz (what the viewer
-    draws); a sampled failure also keeps its last DETAIL_WINDOW_S of plan rows without costs and its stack log gzipped.
+    draws) and the plan at 10 Hz; a sampled failure also keeps its stack log gzipped.
     smoke keeps everything but the bag."""
     d = episode_dir(key)
     shutil.rmtree(os.path.join(d, "bag"), ignore_errors=True)
@@ -206,15 +205,15 @@ def slim(key, tier, total):
     rows = [r for i, r in enumerate(rows) if i == 0 or int(r["t"] * 20) != int(rows[i - 1]["t"] * 20)]
     with gzip.open(os.path.join(d, "log.jsonl.gz"), "wt") as f:
         f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in rows)
+    plans = read_plan(key)
+    if plans:   # every episode keeps its whole plan at 10 Hz, as 1 cm steps without costs (what the viewer draws)
+        plans = [p for i, p in enumerate(plans) if i == 0 or int(p["t"] * 10) != int(plans[i - 1]["t"] * 10)]
+        with gzip.open(os.path.join(d, "plan.jsonl.gz"), "wt") as f:
+            f.writelines(json.dumps(_pack_plan(r), separators=(",", ":")) + "\n" for r in plans)
     if not detailed(key, total):
-        for fn in ("plan.jsonl.gz", "stack.log"):
-            if os.path.exists(os.path.join(d, fn)):
-                os.remove(os.path.join(d, fn))
+        if os.path.exists(os.path.join(d, "stack.log")):
+            os.remove(os.path.join(d, "stack.log"))
         return
-    end = rows[-1]["t"] - DETAIL_WINDOW_S if rows else 0.0
-    plans = [{k: v for k, v in p.items() if k != "cost"} for p in read_plan(key) if p["t"] >= end]
-    with gzip.open(os.path.join(d, "plan.jsonl.gz"), "wt") as f:
-        f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in plans)
     if os.path.exists(os.path.join(d, "stack.log")):
         with open(os.path.join(d, "stack.log"), "rb") as src, gzip.open(os.path.join(d, "stack.log.gz"), "wb") as dst:
             shutil.copyfileobj(src, dst)
@@ -230,13 +229,27 @@ def read_log(key):
     return [json.loads(line) for line in gzip.decompress(_episode_file(key, "log.jsonl.gz")).decode().splitlines() if line.strip()]
 
 
+def _pack_plan(p):
+    c = [round(v * 100) for v in p["xy"]]
+    return {"t": p["t"], "planner": p.get("planner"), "d": c[:2] + [c[i] - c[i - 2] for i in range(2, len(c))]}
+
+
+def _unpack_plan(p):
+    if "d" not in p:
+        return p
+    c = list(p.pop("d"))
+    for i in range(2, len(c)):
+        c[i] += c[i - 2]
+    return {**p, "xy": [v / 100 for v in c]}
+
+
 def read_plan(key):
     """The planner's intended path at 20 Hz (simnode.episode.record_plan rows); empty for episodes without one."""
     try:
         data = _episode_file(key, "plan.jsonl.gz")
     except FileNotFoundError:
         return []
-    return [json.loads(line) for line in gzip.decompress(data).decode().splitlines() if line.strip()]
+    return [_unpack_plan(json.loads(line)) for line in gzip.decompress(data).decode().splitlines() if line.strip()]
 
 
 def lap_line(sc):
