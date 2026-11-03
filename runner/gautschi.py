@@ -74,11 +74,11 @@ def pull(src, dst, *excludes, timeout=None):
 
 def pull_keys(src, dst, keys, timeout=None, slim=False):
     """Compressed rsync of only the named episode dirs under src, never their bags (the log holds the same signals);
-    slim also leaves plans and stack logs behind."""
+    slim also leaves stack logs behind. Plans always come: the viewer draws every episode's plan."""
     with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
         f.write("".join(k + "\n" for k in keys))
         f.flush()
-        skip = ["bag/"] + (["plan.jsonl.gz", "stack.log"] if slim else [])
+        skip = ["bag/"] + (["stack.log"] if slim else [])
         return _run(["rsync", "-a", "-r", "-z", f"--files-from={f.name}", *[f"--exclude={x}" for x in skip], "-e", " ".join(SSH),
                      f"{HOST}:{src}", dst], timeout=timeout)
 
@@ -264,7 +264,7 @@ class _Sync:
             full = job["tier"] in store.FULL_LOG_TIERS
             pull_keys(f"{OUT}/{self.jid}/", eps + "/", new, timeout=POLL_TIMEOUT_S, slim=not full)
             sampled = [k for k in new if store.detailed(k, job["total"] or 0)]
-            if sampled and not full:   # only the sampled failures keep a plan and stack log (store.slim)
+            if sampled and not full:   # only the sampled failures keep a stack log (store.slim)
                 pull_keys(f"{OUT}/{self.jid}/", eps + "/", sampled, timeout=POLL_TIMEOUT_S, slim=False)
         got = {k for k in new if os.path.exists(os.path.join(eps, k, "outcome.json"))}
         self.pulled |= got

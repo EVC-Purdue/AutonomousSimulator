@@ -11,7 +11,8 @@
    "enum": [
     "smoke",
     "dev",
-    "large"
+    "large",
+    "lowsteer"
    ]
   },
   "user": {

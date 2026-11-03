@@ -400,7 +400,7 @@ def test_log_reads_back_from_an_older_jsonl_shard(tmp_results, monkeypatch, tmp_
     shard = tmp_path / "old.jsonl.gz"
     with gzip.open(shard, "wt") as f:
         f.write(json.dumps({"key": "k1", "outcome": {}, "log": [{"t": 0.0}, {"t": 0.1}]}) + "\n")
-    monkeypatch.setattr(store, "index", lambda: {"k1": {"key": "k1", "job_id": "j", "shard": "jobs/j/logs/shard-0000.jsonl.gz"}})
+    store._append(store._index_path(), {"key": "k1", "job_id": "j", "shard": "jobs/j/logs/shard-0000.jsonl.gz"})
     monkeypatch.setattr(store, "hf_download", lambda path: str(shard))
     assert store.has_log("k1") and store.read_log("k1") == [{"t": 0.0}, {"t": 0.1}] and store.read_plan("k1") == []
 
@@ -442,3 +442,57 @@ def test_upload_takes_a_snapshot_of_append_only_files(tmp_results):
     ops = dict(store._upload_ops(["index/episodes.jsonl"]))
     open(path, "a").write('{"key": "b"}\n')   # an append mid-upload does not change what goes up
     assert ops["results/index/episodes.jsonl"] == b'{"key": "a"}\n'
+
+
+def test_slim_reads_only_the_local_plan(tmp_results, monkeypatch):
+    import gzip
+    import json
+    import os
+    key = "3" * 64
+    d = store.episode_dir(key)
+    os.makedirs(d)
+    with gzip.open(os.path.join(d, "log.jsonl.gz"), "wt") as f:
+        f.writelines(json.dumps({"t": i / 60}) + "\n" for i in range(60))
+    with open(os.path.join(d, "outcome.json"), "w") as f:
+        json.dump({"status": "ok"}, f)
+    monkeypatch.setattr(store, "_shard", lambda k: "jobs/j/logs/shard-0009.tar")   # already in a shard not yet on HF
+    monkeypatch.setattr(store, "hf_download", lambda path: (_ for _ in ()).throw(AssertionError("slim went to HF")))
+    store.slim(key, "dev", 10)
+    assert sorted(os.listdir(d)) == ["log.jsonl.gz", "outcome.json"]
+
+
+def test_episode_file_reads_a_shard_still_waiting_for_upload_locally(tmp_results, monkeypatch):
+    import io
+    import os
+    import tarfile
+    shard = "jobs/j/logs/shard-0009.tar"
+    os.makedirs(os.path.join(store.RESULTS, "jobs/j/logs"))
+    with tarfile.open(os.path.join(store.RESULTS, shard), "w") as tar:
+        info = tarfile.TarInfo("k1/plan.jsonl.gz")
+        info.size = 3
+        tar.addfile(info, io.BytesIO(b"abc"))
+    monkeypatch.setattr(store, "_shard", lambda k: shard)
+    monkeypatch.setattr(store, "hf_download", lambda path: (_ for _ in ()).throw(AssertionError("went to HF")))
+    assert store._episode_file("k1", "plan.jsonl.gz") == b"abc"
+
+
+def test_index_lock_excludes_another_process(tmp_results, tmp_path):
+    import multiprocessing
+    import os
+    import time
+    marker = tmp_path / "held"
+
+    def hold():
+        with store._INDEX_LOCK:
+            marker.write_text("1")
+            time.sleep(0.6)
+
+    p = multiprocessing.get_context("fork").Process(target=hold)
+    p.start()
+    while not marker.exists():
+        time.sleep(0.01)
+    t = time.monotonic()
+    with store._INDEX_LOCK:   # two drivers rewriting the index at once lost entries
+        waited = time.monotonic() - t
+    p.join()
+    assert waited > 0.3

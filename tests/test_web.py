@@ -1,3 +1,5 @@
+import gzip
+import json
 import math
 import os
 import sys
@@ -19,12 +21,13 @@ def built(tmp_path_factory):
 
 
 @pytest.fixture
-def client(built, monkeypatch):
+def client(built, monkeypatch, tmp_path):
     root, ids = built
     monkeypatch.setattr(store, "RESULTS", str(root))
     fixture_data.install(monkeypatch, conditions=["nominal", "grip_low", "all_high"])
     from web import app
     monkeypatch.setattr(app, "_cache", {})   # each test starts without another's cached values
+    monkeypatch.setattr(app, "VIEW_CACHE", str(tmp_path / "view_cache"))
     return app.create_app().test_client(), ids
 
 
@@ -154,6 +157,18 @@ def test_mpc_episode_carries_step_costs_cost_series_and_field(client):
     d = c.get(f"/api/episodes/{ids['mpc-h60']}/{key}/plan/{j}").get_json()
     assert d["terms"] == p["terms"] and len(d["steps"]) == len(p["cost"][j]) and len(d["steps"][0]) == 10
     assert [round(sum(r), 3) for r in d["steps"]] == [round(v, 3) for v in p["cost"][j]]
+
+
+def test_cached_episode_keeps_its_plan(client):
+    c, ids = client
+    b = c.get(f"/api/jobs/{ids['mpc-h60']}").get_json()["breakdown"]
+    key = b["laps"]["nominal"]["kart1"]["center"]["key"]
+    url = f"/api/episodes/{ids['mpc-h60']}/{key}"
+    first = c.get(url).get_json()
+    r = c.get(url, headers={"Accept-Encoding": "gzip"})   # served from the stored file
+    again = json.loads(gzip.decompress(r.data))
+    assert r.headers["Content-Encoding"] == "gzip" and again == first
+    assert len(again["plan"]["t"]) == len(again["plan"]["xy"]) > 10 and all(again["plan"]["xy"]) and again["plan"]["cost"]   # the MPC line
 
 
 def test_episode_log_drops_the_parked_warm_up(client, monkeypatch):

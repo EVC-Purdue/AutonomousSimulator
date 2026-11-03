@@ -51,7 +51,7 @@ LAP_GHOST_V_CAP = 4.0
 PLAN_HZ = 20  # plan.jsonl.gz rows, the viewer's rate
 LOG_COLS = ("t", "x", "y", "yaw", "vx", "vy", "yaw_rate", "ay", "wheel_l_deg", "wheel_r_deg", "column_deg", "cmd_speed",
             "cmd_steer", "auto", "odom_age_s", "ekf_err_m", "cmd_age_s", "rate_limited", "travel_limited", "s", "cte",
-            "head_err", "phase", "rear_spin")
+            "head_err", "phase", "rear_spin", "ekf_along_m", "ekf_cross_m", "ekf_head_deg")
 CLOCK_TOPIC = "/sim/clock/"  # bringup_simdev remaps each node's /clock here
 SUBSCRIBERS = {"/system_state": "pathfinder_node", "/manual_commands": "pathfinder_node", "/cmd_drive": "e_comms_node",
                "/sim/imu_raw": "imu_node", **{CLOCK_TOPIC + n: n for n in NODES}}
@@ -311,6 +311,7 @@ class _Runtime:
         self.kart, self.f = k, float(k["system_frequency"]) * self.mult  # lockstep tick rate; rows stay at system_frequency
         self.thr = failures.thresholds(resolved, root)
         self.invert = bool(resolved["recipe"].get("sim", {}).get("invert_steer", False))
+        self.odom_rear = resolved["recipe"].get("sim", {}).get("odom_point", "antenna") == "rear"  # the point the stack's odom reports
         sc = resolved["scenario"]
         self.kind = sc["type"]
         self.clip = clips.load(sc["clip_id"]) if self.kind == "clip" else None
@@ -363,7 +364,7 @@ class _Runtime:
         self.diag, self.wait_max, self.planner_up = "", 0.0, False
         self.intent = None  # newest pathfinder/plan data not yet recorded
         self.wall = {"physics": 0.0, "clock_and_sensors": 0.0, "wait_stack": 0.0}  # wall seconds per tick phase
-        self.ant_hist = deque(maxlen=4000)  # antenna truth per 1 ms, for EKF error at the odom stamp
+        self.ant_hist = deque(maxlen=4000)  # antenna and rear-axle truth per 1 ms, for EKF error at the odom stamp
         self.braked = True
         self.truth, self.rate_limited, self.travel_limited = None, False, False
         rclpy.init()
@@ -389,7 +390,8 @@ class _Runtime:
 
     def _on_odom(self, msg):
         p = msg.pose.pose.position
-        self.odom = (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, p.x, p.y)
+        q = msg.pose.pose.orientation
+        self.odom = (msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9, p.x, p.y, 2.0 * math.atan2(q.z, q.w))
 
     def _on_imu_status(self, msg):
         try:
@@ -545,7 +547,7 @@ class _Runtime:
     def _sense(self, tr):
         t = self.t
         ax, ay = antenna(tr["x"], tr["y"], tr["yaw"])
-        self.ant_hist.append((self.step, ax, ay))
+        self.ant_hist.append((self.step, ax, ay, tr["x"], tr["y"], tr["yaw"]))
         nmea = self.gps.sample(t, tr["x"], tr["y"], tr["yaw"], tr["vx_world"], tr["vy_world"])
         if nmea:
             self.plan.wrote(self.step * STEP_NS)
@@ -561,25 +563,30 @@ class _Runtime:
             self.pty.send_std(ADCB_ID, encode_adcb(self.state))
 
     def ekf_err(self):
+        """Odom minus truth at its stamp and reported point: (distance, along, cross in the true body frame, heading deg)."""
         if self.odom is None or not self.ant_hist:
-            return 0.0
-        st, ox, oy = self.odom
+            return 0.0, 0.0, 0.0, 0.0
+        st, ox, oy, oyaw = self.odom
         i = len(self.ant_hist) - 1 - (self.ant_hist[-1][0] - int(round(st / STEP))) // CLOCK_STEPS
-        _, ax, ay = self.ant_hist[min(max(i, 0), len(self.ant_hist) - 1)]
-        return math.hypot(ox - ax, oy - ay)
+        _, ax, ay, rx, ry, yaw = self.ant_hist[min(max(i, 0), len(self.ant_hist) - 1)]
+        ex, ey = (ox - rx, oy - ry) if self.odom_rear else (ox - ax, oy - ay)
+        c, s = math.cos(yaw), math.sin(yaw)
+        return math.hypot(ex, ey), c * ex + s * ey, -s * ex + c * ey, math.degrees(math.remainder(oyaw - yaw, 2 * math.pi))
 
     def row(self, phase):
         tr, t = self.truth, self.t
         s, cte, psi = lines.frenet(self.line, tr["x"], tr["y"])
         he = math.degrees(math.remainder(tr["yaw"] - float(psi[0]), 2 * math.pi))
+        err, along, cross, ehead = self.ekf_err()
         return {"t": t, "x": tr["x"], "y": tr["y"], "yaw": tr["yaw"], "vx": tr["vx"], "vy": tr["vy"],
                 "yaw_rate": tr["yaw_rate"], "ay": tr["ay"], "wheel_l_deg": tr["wheel_l_deg"],
                 "wheel_r_deg": tr["wheel_r_deg"], "column_deg": self.col, "cmd_speed": self.cmd_speed,
                 "cmd_steer": self.cmd_steer, "auto": int(phase == 2),
-                "odom_age_s": t - (self.odom[0] if self.odom else 0.0), "ekf_err_m": self.ekf_err(),
+                "odom_age_s": t - (self.odom[0] if self.odom else 0.0), "ekf_err_m": err,
                 "cmd_age_s": t - self.cmd_t, "rate_limited": int(self.rate_limited),
                 "travel_limited": int(self.travel_limited), "s": float(s[0]), "cte": float(cte[0]), "head_err": he,
-                "phase": phase, "rear_spin": tr["rear_axle_speed"]}  # rear wheel spin x rolling radius (m/s)
+                "phase": phase, "rear_spin": tr["rear_axle_speed"],  # rear wheel spin x rolling radius (m/s)
+                "ekf_along_m": along, "ekf_cross_m": cross, "ekf_head_deg": ehead}
 
     def ghost_truth(self):
         tr = self.truth

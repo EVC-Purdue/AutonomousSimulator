@@ -1,5 +1,6 @@
 """Results store: episode records, cache index, summaries, breakdowns, leaderboard, log shards, HF upload."""
 import datetime
+import fcntl
 import fnmatch
 import gzip
 import json
@@ -9,6 +10,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import traceback
 
 import numpy as np
@@ -23,7 +25,24 @@ FLUSH_EPISODES = 500   # episodes waiting before a running job's logs go to HF i
 HEAVY = ("log.jsonl.gz", "plan.jsonl.gz", "bag")   # removed locally once on HF; outcome and the small text logs stay
 FULL_LOG_TIERS = ("smoke",)   # the debugging tier keeps whole logs; bigger tiers keep 20 Hz logs plus a sample of failure plans
 DETAIL_MAX = 1000   # about this many failed episodes per job keep a stack log
-_INDEX_LOCK = threading.Lock()   # index appends vs the shard rewrite in _pack_logs
+class _IndexLock:
+    """A thread lock plus an flock on results/index/.lock, so drivers in separate processes never rewrite the index at once."""
+    def __init__(self):
+        self._t = threading.Lock()
+
+    def __enter__(self):
+        self._t.acquire()
+        os.makedirs(os.path.join(RESULTS, "index"), exist_ok=True)
+        self._f = open(os.path.join(RESULTS, "index", ".lock"), "w")
+        fcntl.flock(self._f, fcntl.LOCK_EX)
+
+    def __exit__(self, *exc):
+        fcntl.flock(self._f, fcntl.LOCK_UN)
+        self._f.close()
+        self._t.release()
+
+
+_INDEX_LOCK = _IndexLock()   # index appends vs the shard rewrite in _pack_logs, across threads and processes
 _SYNC_LOCK = threading.Lock()   # pending upload and delete lists, written by finishes and deletes
 OUTCOME_KEYS = ("status", "cause", "context_valid", "laps_completed", "laps_attempted", "wall_s", "sim_s", "t_end", "handoff_t")
 
@@ -141,10 +160,54 @@ def record(job_id, resolved, outcome, metrics, idx=None):
     return rec
 
 
-def hf_download(path):
-    """Local path of a file in the HF results repo (cached by huggingface_hub)."""
+HF_TTL_S = 60   # a downloaded file is rechecked against HF at most this often
+_HF_PATHS = {}   # repo path -> (local path, when resolved)
+
+
+def _hf_resolve(path):
     from huggingface_hub import hf_hub_download
-    return hf_hub_download(HF_REPO, path, repo_type="dataset")
+    _HF_PATHS[path] = (hf_hub_download(HF_REPO, path, repo_type="dataset"), time.time())
+    return _HF_PATHS[path][0]
+
+
+def hf_download(path):
+    """Local path of a file in the HF results repo (cached by huggingface_hub); a known file returns at once and is
+    rechecked against HF in the background at most once per HF_TTL_S."""
+    hit = _HF_PATHS.get(path)
+    if hit and os.path.exists(hit[0]):
+        if time.time() - hit[1] >= HF_TTL_S:
+            _HF_PATHS[path] = (hit[0], time.time())   # one recheck at a time
+            threading.Thread(target=_hf_resolve, args=(path,), daemon=True).start()
+        return hit[0]
+    return _hf_resolve(path)
+
+
+_IDX_SHARDS = {}   # index path -> [inode, bytes parsed, {key: shard}]
+_IDX_SHARDS_LOCK = threading.Lock()
+
+
+def _index_shards():
+    """{key: shard} from this server's index, parsing only the bytes appended since the last call."""
+    path = _index_path()
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return {}
+    with _IDX_SHARDS_LOCK:   # request threads share the parsed offset
+        m = _IDX_SHARDS.get(path)
+        if m is None or m[0] != st.st_ino or st.st_size < m[1]:   # rewrites go through os.replace: a new inode
+            m = _IDX_SHARDS[path] = [st.st_ino, 0, {}]
+        if st.st_size > m[1]:
+            with open(path, "rb") as f:
+                f.seek(m[1])
+                chunk = f.read(st.st_size - m[1])
+            end = chunk.rfind(b"\n") + 1   # a trailing line can be mid-append
+            for line in chunk[:end].splitlines():
+                if line.strip():
+                    e = json.loads(line)
+                    m[2][e["key"]] = e.get("shard")
+            m[1] += end
+        return m[2]
 
 
 _HF_INDEX = {}   # the HF index, parsed once per revision
@@ -152,7 +215,7 @@ _HF_INDEX = {}   # the HF index, parsed once per revision
 
 def _shard(key):
     """The key's log shard: this server's index, else the HF one (a job mirrored from another server)."""
-    shard = (index().get(key) or {}).get("shard")
+    shard = _index_shards().get(key)
     if shard:
         return shard
     try:
@@ -181,7 +244,8 @@ def _episode_file(key, name):
         raise FileNotFoundError(path)
     if not shard.endswith(".tar"):
         raise FileNotFoundError(path)
-    with tarfile.open(hf_download("results/" + shard)) as tar:
+    local = os.path.join(RESULTS, shard)   # a shard still waiting for its upload
+    with tarfile.open(local if os.path.exists(local) else hf_download("results/" + shard)) as tar:
         try:
             return tar.extractfile(f"{key}/{name}").read()
         except KeyError:
@@ -205,7 +269,7 @@ def slim(key, tier, total):
     rows = [r for i, r in enumerate(rows) if i == 0 or int(r["t"] * 20) != int(rows[i - 1]["t"] * 20)]
     with gzip.open(os.path.join(d, "log.jsonl.gz"), "wt") as f:
         f.writelines(json.dumps(r, separators=(",", ":")) + "\n" for r in rows)
-    plans = read_plan(key)
+    plans = read_plan(key) if os.path.exists(os.path.join(d, "plan.jsonl.gz")) else []   # never the HF shard
     if plans:   # every episode keeps its whole plan at 10 Hz, as 1 cm steps without costs (what the viewer draws)
         plans = [p for i, p in enumerate(plans) if i == 0 or int(p["t"] * 10) != int(plans[i - 1]["t"] * 10)]
         with gzip.open(os.path.join(d, "plan.jsonl.gz"), "wt") as f:

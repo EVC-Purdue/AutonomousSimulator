@@ -203,6 +203,9 @@ class FakeGautschi:
                 with gzip.open(os.path.join(d, "log.jsonl.gz"), "wt") as f:
                     for row in rows:
                         f.write(json.dumps(row) + "\n")
+                if "--exclude=plan.jsonl.gz" not in args:   # the planner's path, as the sim records it
+                    with gzip.open(os.path.join(d, "plan.jsonl.gz"), "wt") as f:
+                        f.write(json.dumps({"t": 1.0, "planner": 2, "xy": [0.0, 0.0, 1.0, 0.5]}) + "\n")
                 with open(os.path.join(d, "outcome.json"), "w") as f:
                     json.dump({"status": "ok", "cause": None, "t_end": 10.0, "context_valid": True, "wall_s": 1.0,
                                "sim_s": 10.0, "handoff_t": 0.0, "laps_completed": 0,

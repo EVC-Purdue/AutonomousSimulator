@@ -436,3 +436,22 @@ def test_outputs_go_to_scratch(tmp_results, fake_docker, gautschi_remote):
     cmds = [c[-1] for c in gautschi_remote.calls]
     assert any(c.startswith(f"mkdir -p {out} && sbatch") for c in cmds)
     assert any(c[0] == "rsync" and c[-2].endswith(f":{out}/") for c in gautschi_remote.calls)
+
+
+def test_pull_keys_always_brings_the_plan_and_slim_leaves_only_stack_logs_and_bags(monkeypatch):
+    calls = []
+    monkeypatch.setattr(gautschi, "_run", lambda cmd, timeout=None: calls.append(cmd))
+    gautschi.pull_keys("out/j/", "eps/", ["k1"], slim=True)
+    gautschi.pull_keys("out/j/", "eps/", ["k1"], slim=False)
+    slim, full = ([a for a in c if a.startswith("--exclude=")] for c in calls)
+    assert "--exclude=plan.jsonl.gz" not in slim + full   # the viewer draws every episode's plan
+    assert slim == ["--exclude=bag/", "--exclude=stack.log"] and full == ["--exclude=bag/"]
+
+
+def test_every_episode_of_a_slimmed_remote_run_keeps_its_plan(tmp_results, fake_docker, gautschi_remote, monkeypatch):
+    monkeypatch.setattr(store, "FULL_LOG_TIERS", ())   # smoke slimmed like dev and large
+    jid = _job()
+    local.Runner(workers=1).run_once()
+    recs = store.episodes(jid)
+    assert jobs.get(jid)["status"] == "done" and len(recs) == 45
+    assert all(store.read_plan(r["key"]) == [{"t": 1.0, "planner": 2, "xy": [0.0, 0.0, 1.0, 0.5]}] for r in recs)

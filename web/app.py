@@ -1,5 +1,8 @@
 """Flask frontend: Jobs and Leaderboard pages and their JSON API over the runner and store."""
 import datetime
+import glob
+import gzip
+import hashlib
 import hmac
 import json
 import math
@@ -7,6 +10,8 @@ import os
 import signal
 import statistics
 import sys
+import threading
+import types
 
 import numpy as np
 from flask import Flask, Response, abort, jsonify, render_template, request
@@ -25,6 +30,9 @@ DEFAULT_WALL_S = 120.0
 COST_TERMS = ("d", "heading", "speed", "delta", "delta_rate", "accel", "progress", "terminal_heading", "a_lat", "edge")  # mpc.COST_TERMS order
 TIERS = ("smoke", "dev", "large")
 _cache = {}
+VIEW_CACHE = None   # gzipped API responses; None is results/view_cache
+_CODE_V = hashlib.sha1(b"".join(open(os.path.join(config.ROOT, f), "rb").read() for f in
+                                ("web/app.py", "runner/store.py", "harness/metrics.py", "harness/lines.py"))).hexdigest()   # a code change rebuilds every response
 
 
 def conditions():
@@ -118,6 +126,38 @@ def _slip(rows, wheelbase):
     return {"beta_deg": nul(rear), "rear_slip_deg": nul(-rear), "front_slip_deg": nul(front)}
 
 
+class _Capture:
+    """A track whose on_track keeps its per-corner result, so footprint_state over arrays yields per-tick flags."""
+    def __init__(self, track):
+        self.track, self.on = track, None
+
+    def on_track(self, px, py):
+        self.on = self.track.on_track(px, py)
+        return self.on
+
+
+def _footprint(track, log, chunk=16):
+    """failures._footprint with 16 nearby ticks per footprint_state call: the same corners and edge tests, about 6x faster."""
+    x, y, yaw = (np.asarray(log[k], float) for k in ("x", "y", "yaw"))
+    any_out, all_out = np.zeros(len(x), bool), np.zeros(len(x), bool)
+    for i in range(0, len(x), chunk):
+        s, cap = slice(i, i + chunk), _Capture(track)
+        flags = lines.footprint_state(cap, x[s], y[s], yaw[s])
+        any_out[s], all_out[s] = flags if cap.on is None else ((~cap.on).any(axis=0), (~cap.on).all(axis=0))   # a stand-in footprint_state gives flags
+    return any_out, all_out
+
+
+def _with_globals(f, **names):
+    """f with some module globals swapped, leaving the module (and the engine hash) untouched."""
+    g = types.FunctionType(f.__code__, {**f.__globals__, **names}, f.__name__, f.__defaults__, f.__closure__)
+    g.__kwdefaults__ = f.__kwdefaults__
+    return g
+
+
+_unsafe_ticks = _with_globals(metrics.unsafe_ticks, _footprint=_footprint)
+_count_tier = _with_globals(tiers.expand, resolve_episode=lambda *a: None)   # the episode list, unresolved: only its length is used
+
+
 def _unsafe(rows, kart, handoff_t, peak_mu):
     """Autonomous intervals [t0, t1] (s after handoff) breaking each safety criterion, from the full-rate log."""
     if "track_obj" not in _cache:
@@ -127,7 +167,7 @@ def _unsafe(rows, kart, handoff_t, peak_mu):
     m = (log["auto"] > 0.5) & (log["t"] >= handoff_t)
     if not m.any() or peak_mu is None:
         return {c: [] for c in UNSAFE}
-    u = metrics.unsafe_ticks(log, m, _cache["track_obj"], peak_mu, metrics.thresholds({"kart": config.load("karts", kart)}))
+    u = _unsafe_ticks(log, m, _cache["track_obj"], peak_mu, metrics.thresholds({"kart": config.load("karts", kart)}))
     t, dt = log["t"][m] - handoff_t, float(np.median(np.diff(log["t"]))) if len(rows) > 1 else 0.0
     out = {}
     for c, b in u.items():
@@ -144,7 +184,7 @@ def _loc_episodes(job_id):
     path = os.path.join(store.job_dir(job_id), "loc_rms.json")
     final = jobs.get(job_id)["status"] not in jobs.ACTIVE + ("queued",)
     side, added = (store.read_json(path) or {}) if final else {}, False
-    for r in store.episodes(job_id):
+    for r in jobs._sliced(job_id, {}):
         k = r["key"]
         if k in side:
             continue
@@ -178,6 +218,64 @@ def _loc_head(job_id, sl):
     return {"value": rms(sum(v[0] for v in per.values()), sum(v[1] for v in per.values())), "worst_kart": None, "per_kart": per_kart}
 
 
+def _gz(body):
+    """A stored gzipped JSON body, sent as is to a browser that accepts gzip."""
+    if "gzip" not in request.headers.get("Accept-Encoding", ""):
+        return Response(gzip.decompress(body), mimetype="application/json")
+    r = Response(body, mimetype="application/json")
+    r.headers["Content-Encoding"], r.headers["Vary"] = "gzip", "Accept-Encoding"
+    return r
+
+
+def _cached(job_id, name, stamp, build):
+    """build()'s JSON response, gzipped to disk once per stamp and code version, then served from the file."""
+    d = os.path.join(VIEW_CACHE or os.path.join(store.RESULTS, "view_cache"), job_id)
+    path = os.path.join(d, f"{name}-{hashlib.sha1(json.dumps([_CODE_V, stamp]).encode()).hexdigest()[:16]}.json.gz")
+    try:
+        with open(path, "rb") as f:
+            return _gz(f.read())
+    except FileNotFoundError:
+        pass
+    body = gzip.compress(jsonify(build()).get_data(), 5)
+    for old in glob.glob(os.path.join(d, glob.escape(name) + "-*.json.gz")):   # an older stamp's file
+        os.remove(old)
+    os.makedirs(d, exist_ok=True)
+    tmp = f"{path}.{threading.get_ident()}.tmp"
+    with open(tmp, "wb") as f:
+        f.write(body)
+    os.replace(tmp, path)
+    return _gz(body)
+
+
+def _mtimes(d, names):
+    return [os.stat(os.path.join(d, n)).st_mtime_ns if os.path.exists(os.path.join(d, n)) else None for n in names]
+
+
+def _ep_stamp(key):
+    """What an episode's viewer payload is built from: its local files and the content of its log shard."""
+    shard = store._shard(key)
+    src = None
+    if shard:
+        local = os.path.join(store.RESULTS, shard)   # a shard waiting for its upload, else the downloaded blob
+        src = local if os.path.exists(local) else store.hf_download("results/" + shard)
+        src = [os.path.realpath(src), os.stat(src).st_mtime_ns, os.stat(src).st_size]
+    return [key, shard, src, _mtimes(store.episode_dir(key), ("outcome.json", "log.jsonl.gz", "plan.jsonl.gz"))]
+
+
+PREFETCH_SHARDS = 20   # a finished job with at most this many log shards downloads them all when opened (a large job has ~640)
+_warmed = set()
+
+
+def _warm(job_id):
+    """Parses the job's records and the index, then fetches a small job's log shards, so episode clicks find them here."""
+    jobs._faceted(job_id)
+    idx = store._index_shards()
+    shards = sorted({idx.get(r["key"]) for r in jobs._sliced(job_id, {})} - {None})
+    for s in shards if len(shards) <= PREFETCH_SHARDS else []:
+        if not os.path.exists(os.path.join(store.RESULTS, s)):
+            store.hf_download("results/" + s)
+
+
 def _job_or_404(job_id):
     if "/" in job_id or job_id.startswith(".") or not os.path.exists(os.path.join(store.job_dir(job_id), "job.json")):
         abort(404)
@@ -191,7 +289,7 @@ def _slice():
 def _breakdown(job_id, sl=None):
     b = jobs.breakdown(job_id, sl)
     t = {r["key"]: (r["t_end"] - r["handoff_t"]) if r.get("t_end") is not None and r.get("handoff_t") is not None
-         else None for r in store.episodes(job_id)}
+         else None for r in jobs._sliced(job_id, {})}
     for karts in b["laps"].values():
         for cells in karts.values():
             for cell in cells.values():
@@ -313,8 +411,16 @@ def create_app():
     def api_job(job_id):
         job = _job_or_404(job_id)
         sl = _slice()
-        return jsonify({"job": job, "progress": jobs.progress(job_id), "headline": dict(jobs.headline(job_id, sl), loc_rms=_loc_head(job_id, sl)),
-                        "breakdown": _breakdown(job_id, sl), "options": jobs.options([job_id], sl)})
+        build = lambda: {"job": job, "progress": jobs.progress(job_id), "headline": dict(jobs.headline(job_id, sl), loc_rms=_loc_head(job_id, sl)),  # noqa: E731
+                         "breakdown": _breakdown(job_id, sl), "options": jobs.options([job_id], sl)}
+        if job["status"] in jobs.ACTIVE + ("queued",):
+            return jsonify(build())
+        stamp = _mtimes(store.job_dir(job_id), ("job.json", "episodes.jsonl", "breakdown.json", "loc_rms.json"))
+        r = _cached(job_id, "job-" + hashlib.sha1(json.dumps(sl, sort_keys=True).encode()).hexdigest()[:8], stamp, build)
+        if job_id not in _warmed or job_id not in jobs._memo:   # in the background, for the episode clicks that follow
+            _warmed.add(job_id)
+            threading.Thread(target=_warm, args=(job_id,), daemon=True).start()
+        return r
 
     @app.delete("/api/jobs/<job_id>")
     def api_delete(job_id):
@@ -340,7 +446,12 @@ def create_app():
     @app.get("/api/episodes/<job_id>/<key>")
     def api_episode(job_id, key):
         _job_or_404(job_id)
-        rec = next((r for r in store.episodes(job_id) if r["key"] == key), None)
+        if not key.isalnum():
+            abort(404)
+        return _cached(job_id, key, _ep_stamp(key), lambda: _episode(job_id, key))
+
+    def _episode(job_id, key):
+        rec = next((r for r in jobs._sliced(job_id, {}) if r["key"] == key), None)
         if rec is None:
             abort(404)
         out = store.outcome(key) or {}
@@ -392,12 +503,12 @@ def create_app():
         events = [{"t": 0.0, "kind": "handoff"}]
         if out.get("cause") and out.get("t_end") is not None:
             events.append({"t": round(out["t_end"] - (out.get("handoff_t") or 0.0), 3), "kind": out["cause"]})
-        return jsonify({"key": key, "kart": rec["kart_name"], "condition": rec["condition"], "scenario": sc,
+        return {"key": key, "kart": rec["kart_name"], "condition": rec["condition"], "scenario": sc,
                         "line_name": name, "log": log, "plan": plan, "events": events, "line": _line_xy(name), "track": _track(),
                         "geom": _geom(rec["kart_name"]), "outcome": out, "context_valid": out.get("context_valid", True) is not False,
                         "metrics": {k: rec.get(k) for k in ("cte_p90", "recovered", "recovery_s", "peak_cte_after_m")},
                         "unsafe": unsafe, "loc": loc and {k: loc[k] for k in ("rms", "p95")}, "lat_limit": None if out.get("peak_mu") is None else
-                        {"envelope": round(metrics.DEFAULT_THR["lat_frac"] * out["peak_mu"] * 9.81, 3), "grip": round(out["peak_mu"] * 9.81, 3)}})
+                        {"envelope": round(metrics.DEFAULT_THR["lat_frac"] * out["peak_mu"] * 9.81, 3), "grip": round(out["peak_mu"] * 9.81, 3)}}
 
     @app.get("/api/episodes/<job_id>/<key>/plan/<int:i>")
     def api_plan_terms(job_id, key, i):
@@ -467,7 +578,7 @@ def create_app():
             memo = "tier_n:" + json.dumps(config.load("tiers", t), sort_keys=True)   # expanding large is 32k episodes: once per tier config
             try:
                 if memo not in _cache:
-                    _cache[memo] = len(tiers.expand(t, dummy))
+                    _cache[memo] = len(_count_tier(t, dummy))   # counted, not resolved
                 n = _cache[memo]
             except Exception:   # clips absent and not fetchable
                 tier_info[t] = {"episodes": None, "cost_usd": None}
