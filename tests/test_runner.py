@@ -15,7 +15,7 @@ def test_job_lifecycle_and_eta(tmp_results, fake_docker):
     seen = local.Runner(workers=1).run_once(record_status=True)
     assert seen[jid][:3] == ["building", "running", "running"] and jobs.get(jid)["status"] == "done"
     p = jobs.progress(jid)
-    assert p["done"] == p["total"] == 45
+    assert p["done"] == p["total"] == 15
 
 
 def test_resubmit_simulates_nothing(tmp_results, fake_docker):
@@ -278,7 +278,7 @@ def test_submit_checks_params_by_kart(tmp_results):
     for bad in ({"kart1": {"pathfinder_node": {"nope": 1}}}, {"kart9": {"pathfinder_node": {"planner": "mpc"}}}):
         with pytest.raises(ValueError):
             jobs.submit("smoke", dict(recipe(wt), params_by_kart=bad), "u", "x")
-    jobs.submit("smoke", dict(recipe(wt), params_by_kart={"kart2": {"pathfinder_node": {"planner": "pure_pursuit"}}}), "u", "x")
+    jobs.submit("smoke", dict(recipe(wt), params_by_kart={"kart1": {"pathfinder_node": {"planner": "pure_pursuit"}}}), "u", "x")
 
 
 def test_stack_params_at_a_git_ref():

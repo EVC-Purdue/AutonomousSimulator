@@ -291,3 +291,20 @@ def test_gps_due_predicts_sample_output():
         for k in range(300):
             due = g.due(k * 0.001)
             assert due == bool(g.sample(k * 0.001, 0.0, 0.0, 0.0, 1.0, 0.0)), (cfg["latency_ms"], k)
+
+
+def test_slam_and_gs3d_sensors():
+    from simnode.sensors.slam import Slam
+    from simnode.sensors.gs3d import Gs3d
+    slam = Slam({"enabled": True, "rate_hz": 30.0, "latency_ms": 0.0, "drift_mps": 0.004, "pos_sigma_m": 0.015, "yaw_sigma_deg": 0.25},
+                np.random.default_rng(0))
+    s_valid = [m for k in range(100) for m in slam.sample(k * 0.01, k * 0.05, 0.0, 0.0, 5.0, 0.0, 0.0)]
+    assert len(s_valid) >= 25 and all(abs(m["x"] - m["t"] * 5.0) < 0.3 and m["pos_sigma_m"] > 0 for m in s_valid)
+    gs = Gs3d({"enabled": True, "rate_hz": 15.0, "latency_ms": 0.0, "inlier_sigma_m": 0.018, "inlier_prob": 0.75, "yaw_sigma_deg": 0.2},
+              np.random.default_rng(1))
+    g_valid = [m for k in range(200) for m in gs.sample(k * 0.02, 10.0, -5.0, 0.2, 6.0, 0.0)]
+    assert len(g_valid) >= 25
+    assert {m["inlier"] for m in g_valid} == {True, False}
+    inliers = [math.hypot(m["x"] - 10.0, m["y"] + 5.0) for m in g_valid if m["inlier"]]
+    outliers = [math.hypot(m["x"] - 10.0, m["y"] + 5.0) for m in g_valid if not m["inlier"]]
+    assert np.mean(inliers) < np.mean(outliers)

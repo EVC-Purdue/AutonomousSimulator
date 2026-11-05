@@ -44,7 +44,8 @@ class _IndexLock:
 
 _INDEX_LOCK = _IndexLock()   # index appends vs the shard rewrite in _pack_logs, across threads and processes
 _SYNC_LOCK = threading.Lock()   # pending upload and delete lists, written by finishes and deletes
-OUTCOME_KEYS = ("status", "cause", "context_valid", "laps_completed", "laps_attempted", "wall_s", "sim_s", "t_end", "handoff_t")
+OUTCOME_KEYS = ("status", "cause", "context_valid", "laps_completed", "laps_attempted", "wall_s", "sim_s", "t_end",
+                "handoff_t", "overtake_completed", "overtake_time_s", "min_clearance_m")
 
 
 def now():
@@ -320,16 +321,83 @@ def lap_line(sc):
     return sc["line"] if "speed_cap" not in sc else f'{sc["line"]}@{sc["speed_cap"]}'   # speed-capped laps are their own column
 
 
+def _infer_test(r):
+    sc = r["scenario"]
+    if sc.get("test"):
+        return sc["test"]
+    if sc["type"] == "clip":
+        return "clips"
+    cond = str(r.get("condition", ""))
+    if cond.startswith("loc_"):
+        return "localization"
+    if sc.get("opponent"):
+        return "endurance_overtake" if sc.get("laps", 1) >= 40 else "overtake"
+    if sc.get("laps", 1) >= 10:
+        return "slide"
+    return "control"
+
+
 def breakdown(recs):
+    if not recs:
+        return {"laps": {}, "clips": {}}
     laps, by_cell = {}, {}
+    by_test, grid_3x3, loc_cells, ot_list, slide_list = {}, {}, {}, [], []
     for r in recs:
         sc = r["scenario"]
+        tname = _infer_test(r)
+        by_test.setdefault(tname, []).append(r)
         if sc["type"] == "lap":
-            laps.setdefault(r["condition"], {}).setdefault(r["kart_name"], {})[lap_line(sc)] = {
-                "cte_p90": r.get("cte_p90"), "status": r["status"], "cause": r.get("cause"), "key": r["key"]}
+            cond = r["condition"]
+            laps.setdefault(cond, {}).setdefault(r["kart_name"], {})[lap_line(sc)] = {
+                "cte_p90": r.get("cte_p90"), "best_lap_s": r.get("best_lap_s"), "loc_p95": r.get("loc_p95"),
+                "slide_pct_p95": r.get("slide_pct_p95"), "overtake_completed": r.get("overtake_completed"),
+                "test": tname, "status": r["status"], "cause": r.get("cause"), "key": r["key"]}
+            if cond.startswith("noise_"):
+                parts = cond.split("_")
+                if len(parts) == 4 and parts[0] == "noise" and parts[2] == "tire":
+                    cell_key = f"{parts[1]}_{parts[3]}"
+                    grid_3x3.setdefault(cell_key, {"noise": parts[1], "tire": parts[3], "episodes": []})["episodes"].append({
+                        "key": r["key"], "line": lap_line(sc), "test": tname, "status": r["status"], "cause": r.get("cause"),
+                        "cte_p90": r.get("cte_p90"), "best_lap_s": r.get("best_lap_s"), "safety": r.get("safety"),
+                        "laps_completed": r.get("laps_completed", 0), "laps_attempted": r.get("laps_attempted", sc.get("laps", 1)),
+                        "overtake_completed": r.get("overtake_completed")})
+            if cond.startswith("loc_") or tname == "localization":
+                loc_cells.setdefault(cond, {})[lap_line(sc)] = {
+                    "key": r["key"], "status": r["status"], "cause": r.get("cause"),
+                    "loc_p50": r.get("loc_p50"), "loc_p95": r.get("loc_p95"), "loc_p99": r.get("loc_p99"),
+                    "loc_rms": r.get("loc_rms"), "cte_p90": r.get("cte_p90")}
+            if sc.get("opponent") or r.get("overtake_completed") is not None or tname in ("overtake", "endurance_overtake"):
+                ot_list.append({
+                    "key": r["key"], "condition": cond, "line": lap_line(sc), "test": tname,
+                    "status": r["status"], "cause": r.get("cause"),
+                    "laps_completed": r.get("laps_completed", 0), "laps_attempted": r.get("laps_attempted", sc.get("laps", 1)),
+                    "overtake_completed": bool(r.get("overtake_completed")), "overtake_time_s": r.get("overtake_time_s"),
+                    "min_clearance_m": r.get("min_clearance_m"), "cte_p90": r.get("cte_p90")})
+            if tname == "slide" or sc.get("laps", 1) >= 3 or r.get("laps_detail"):
+                slide_list.append({
+                    "key": r["key"], "condition": cond, "line": lap_line(sc), "test": tname,
+                    "status": r["status"], "cause": r.get("cause"),
+                    "laps_completed": r.get("laps_completed", 0), "laps_attempted": r.get("laps_attempted", sc.get("laps", 1)),
+                    "learned_to_slide": bool(r.get("learned_to_slide")), "laps_to_slide": r.get("laps_to_slide"),
+                    "lap_1_s": r.get("lap_1_s"), "best_lap_s": r.get("best_lap_s"), "final_lap_s": r.get("final_lap_s"),
+                    "lap_improvement_s": r.get("lap_improvement_s"), "slide_pct_p95": r.get("slide_pct_p95"),
+                    "laps_detail": r.get("laps_detail") or []})
         else:
             cls = clips.load(sc["clip_id"])["cls"]
             by_cell.setdefault(cls, {}).setdefault(r["kart_name"], []).append(r)
+
+    for cell in grid_3x3.values():
+        eps = cell["episodes"]
+        ctes = [e["cte_p90"] for e in eps if e.get("cte_p90") is not None]
+        lts = [e["best_lap_s"] for e in eps if e.get("best_lap_s") is not None]
+        att = sum(e.get("laps_attempted", 1) for e in eps)
+        done = sum(e.get("laps_completed", 0) for e in eps)
+        cell["cte_p90"] = round(float(np.median(ctes)), 3) if ctes else None
+        cell["best_lap_s"] = round(float(np.median(lts)), 3) if lts else None
+        cell["laps_pct"] = round(100.0 * done / max(att, 1), 1)
+        cell["n"] = len(eps)
+        cell["ok"] = sum(1 for e in eps if e["status"] == "ok")
+
     out_clips = {}
     for cls, karts in by_cell.items():
         for kart, rs in karts.items():
@@ -341,7 +409,36 @@ def breakdown(recs):
                 "episodes": [{"key": r["key"], "clip_id": r["scenario"]["clip_id"], "recovered": r.get("recovered"),
                               "recovery_s": r.get("recovery_s"), "peak_cte_after_m": r.get("peak_cte_after_m"),
                               "context_valid": r.get("context_valid")} for r in rs]}
-    return {"laps": laps, "clips": out_clips}
+
+    tests_summary = {}
+    score_key_map = {"control": "score_control", "localization": "score_localization", "overtake": "score_overtake",
+                     "slide": "score_slide", "endurance_overtake": "score_endurance", "clips": "score_clips"}
+    for tname, trs in by_test.items():
+        agg = {k: v["value"] for k, v in metrics.aggregate(trs).items()}
+        sk = score_key_map.get(tname, "composite_score")
+        tests_summary[tname] = {
+            "n": len(trs),
+            "ok": sum(1 for r in trs if r["status"] == "ok"),
+            "failures": agg.get("failures", 0),
+            "score": agg.get(sk) if agg.get(sk) is not None else agg.get("composite_score"),
+            "cte_p90": agg.get("cte_p90"),
+            "best_lap_s": agg.get("best_lap_s"),
+            "laps_pct": agg.get("laps_pct"),
+            "loc_p50": agg.get("loc_p50"),
+            "loc_p95": agg.get("loc_p95"),
+            "loc_p99": agg.get("loc_p99"),
+            "overtake_rate": agg.get("overtake_rate"),
+            "overtake_s_median": agg.get("overtake_s_median"),
+            "min_clearance_m": agg.get("min_clearance_m"),
+            "learned_to_slide_rate": agg.get("learned_to_slide_rate"),
+            "laps_to_slide": agg.get("laps_to_slide"),
+            "slide_pct_p95": agg.get("slide_pct_p95"),
+            "recovery_rate": agg.get("recovery_rate"),
+            "recovery_s_median": agg.get("recovery_s_median"),
+        }
+
+    return {"laps": laps, "clips": out_clips, "grid_3x3": grid_3x3, "localization": loc_cells,
+            "overtake": ot_list, "slide": slide_list, "tests": tests_summary}
 
 
 def _seconds(a, b):
@@ -408,6 +505,7 @@ def leaderboard(sort="cte_p90", dir="asc", tier="dev"):
         best.append((have or rs)[0])
     out = sorted((r for r in best if r.get(sort) is not None), key=lambda r: r[sort], reverse=dir == "desc")
     out += [r for r in best if r.get(sort) is None]
+    out.sort(key=lambda r: r["stale"])
     return out
 
 

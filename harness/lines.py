@@ -85,28 +85,52 @@ def write_capped(src, dst, cap):
     return dst
 
 
+def _line_geom(line):
+    ax, ay, ls, lpsi = (line.sx, line.sy, line.ss, line.spsi) if line.sx is not None else (line.x, line.y, line.s, line.psi)
+    key = (id(ax), id(ay), id(ls), id(lpsi), line.length, line.sx is not None)
+    cached = line.__dict__.get("_geom_cache")
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    vx, vy = np.roll(ax, -1) - ax, np.roll(ay, -1) - ay
+    seg = np.hypot(vx, vy)
+    l2 = np.maximum(seg * seg, 1e-9)
+    step = np.diff(np.append(line.ss, line.length)) if line.sx is not None else seg
+    lpsi_next = np.roll(lpsi, -1)
+    dpsi = np.arctan2(np.sin(lpsi_next - lpsi), np.cos(lpsi_next - lpsi))
+    geom = (ax, ay, ls, lpsi, step, vx, vy, l2, dpsi)
+    line.__dict__["_geom_cache"] = (key, geom)
+    return geom
+
+
 def frenet(line, x, y):
+    geom = _line_geom(line)
+    if np.ndim(x) == 0 and np.ndim(y) == 0:
+        ax, ay, ls, lpsi, step, vx, vy, l2, dpsi = geom
+        ex, ey = float(x) - ax, float(y) - ay
+        t = np.clip((ex * vx + ey * vy) / l2, 0.0, 1.0)
+        rx, ry = ex - t * vx, ey - t * vy
+        k = int(np.argmin(rx * rx + ry * ry))
+        tk = t[k:k + 1]
+        s = (ls[k:k + 1] + tk * step[k:k + 1]) % line.length
+        psi_ref = lpsi[k:k + 1] + tk * dpsi[k:k + 1]
+        cte = -rx[k:k + 1] * np.sin(psi_ref) + ry[k:k + 1] * np.cos(psi_ref)
+        return s, cte, psi_ref
     x, y = np.atleast_1d(np.asarray(x, float)), np.atleast_1d(np.asarray(y, float))
-    geom = (line.sx, line.sy, line.ss, line.spsi, np.diff(np.append(line.ss, line.length))) if line.sx is not None else (line.x, line.y, line.s, line.psi, None)
     n = max(1, FRENET_CELLS // len(geom[0]))
     out = [_frenet(line, geom, x[i:i + n], y[i:i + n]) for i in range(0, len(x), n)] or [_frenet(line, geom, x, y)]
     return tuple(np.concatenate(v) for v in zip(*out))
 
 
 def _frenet(line, geom, x, y):
-    ax, ay, ls, lpsi, step = geom
-    vx, vy = np.roll(ax, -1) - ax, np.roll(ay, -1) - ay
-    seg = np.hypot(vx, vy)
-    l2 = np.maximum(seg * seg, 1e-9)
+    ax, ay, ls, lpsi, step, vx, vy, l2, dpsi = geom
     ex, ey = x[:, None] - ax[None, :], y[:, None] - ay[None, :]
     t = np.clip((ex * vx + ey * vy) / l2, 0.0, 1.0)
     rx, ry = ex - t * vx, ey - t * vy
     k = np.argmin(rx * rx + ry * ry, axis=1)
     i = np.arange(len(x))
     tk = t[i, k]
-    s = (ls[k] + tk * (seg if step is None else step)[k]) % line.length  # the spline carries CSV s, not its own arc length
-    dpsi = np.arctan2(np.sin(lpsi[(k + 1) % len(ax)] - lpsi[k]), np.cos(lpsi[(k + 1) % len(ax)] - lpsi[k]))
-    psi_ref = lpsi[k] + tk * dpsi
+    s = (ls[k] + tk * step[k]) % line.length  # the spline carries CSV s, not its own arc length
+    psi_ref = lpsi[k] + tk * dpsi[k]
     cte = -rx[i, k] * np.sin(psi_ref) + ry[i, k] * np.cos(psi_ref)
     return s, cte, psi_ref
 
@@ -122,23 +146,41 @@ def _polygon(placemark):
     return np.array(pts)
 
 
-def _inside(poly, px, py):
-    px, py = np.asarray(px, float), np.asarray(py, float)
+def _poly_edges(poly):
     x0, y0 = poly[:, 0], poly[:, 1]
     x1, y1 = np.roll(x0, -1), np.roll(y0, -1)
-    k = (y0 != y1) & (np.maximum(y0, y1) > py.min(initial=np.inf)) & (np.minimum(y0, y1) <= py.max(initial=-np.inf))  # only edges spanning some py can cross its ray; horizontal ones never do
-    a, b, c, d = (v[k][:, None] for v in (x0, y0, x1, y1))  # all edges at once, the same float ops per edge as a loop
-    cross = (b > py.ravel()) != (d > py.ravel())
-    xi = a + (py.ravel() - b) * (c - a) / (d - b)
+    m = y0 != y1
+    x0, y0, x1, y1 = x0[m], y0[m], x1[m], y1[m]
+    return x0, y0, x1 - x0, y1 - y0, y1, np.maximum(y0, y1), np.minimum(y0, y1)
+
+
+def _inside_edges(edges, px, py):
+    px, py = np.asarray(px, float), np.asarray(py, float)
+    x0, y0, dx, dy, y1, ymax, ymin = edges
+    k = (ymax > py.min(initial=np.inf)) & (ymin <= py.max(initial=-np.inf))  # only edges spanning some py can cross its ray; horizontal ones never do
+    a, b, dc, dd, d = (v[k][:, None] for v in (x0, y0, dx, dy, y1))  # all edges at once, the same float ops per edge as a loop
+    pyr = py.ravel()
+    cross = (b > pyr) != (d > pyr)
+    xi = a + (pyr - b) * dc / dd
     return (np.count_nonzero(cross & (px.ravel() < xi), axis=0) % 2 == 1).reshape(px.shape)
+
+
+def _inside(poly, px, py):
+    return _inside_edges(_poly_edges(poly), px, py)
 
 
 class Track:
     def __init__(self, outer, inner):
         self.outer, self.inner = outer, inner
+        self._outer_src, self._inner_src = outer, inner
+        self._outer_edges, self._inner_edges = _poly_edges(outer), _poly_edges(inner)
 
     def on_track(self, px, py):
-        return _inside(self.outer, px, py) & ~_inside(self.inner, px, py)
+        if self._outer_src is not self.outer:
+            self._outer_src, self._outer_edges = self.outer, _poly_edges(self.outer)
+        if self._inner_src is not self.inner:
+            self._inner_src, self._inner_edges = self.inner, _poly_edges(self.inner)
+        return _inside_edges(self._outer_edges, px, py) & ~_inside_edges(self._inner_edges, px, py)
 
 
 def kml_polygons():

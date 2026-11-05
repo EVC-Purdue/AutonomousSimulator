@@ -2,7 +2,7 @@
 const Viewer = (() => {
   const { h } = U;
   const NS = "http://www.w3.org/2000/svg";
-  const LINES = ["center", "line1", "line4"];
+  const LINES = ["center", "line1", "line3_less_aggressive", "line4"];
   const V = { el: null, jobs: [], multi: false, idx: null, conds: [], onOpen: null, eps: [], ep: null, T: [], M: [], plots: [], proj: null, dots: [], ro: null };
   const api = { current: null, keys: [] };
   const COLOR_BY = {
@@ -14,6 +14,10 @@ const Viewer = (() => {
     ay: { label: "Lat accel", unit: "m/s²", signed: true, f: (L) => L.ay_mps2 },
     slide: { label: "Slide", unit: "% of peak", f: (L) => L.slide_pct },
     loc_err: { label: "Loc error", unit: "m", f: (L) => L.loc_err },
+    steer_current: { label: "Steer current", unit: "A", signed: true, f: (L) => L.steer_current },
+    aligning_torque: { label: "Align torque", unit: "Nm", signed: true, f: (L) => L.aligning_torque },
+    opp_clearance: { label: "Opp clearance", unit: "m", f: (L) => L.opp_clearance },
+    wm_loss: { label: "RL WM loss", unit: "loss", f: (L) => L.wm_loss },
     cost: { label: "Cost", unit: "cost", stops: "COST", f: (L) => L.cost },
     time: { label: "Time", unit: "s", f: (L) => L.t },
   };
@@ -48,6 +52,14 @@ const Viewer = (() => {
             byKey[e.key] = { kart: k, cond: "nominal", item: "C:" + e.clip_id };
           }
         });
+      }
+    }
+    for (const r of (bd.overtake || []).concat(bd.slide || [])) {
+      if (r && r.key && !byKey[r.key]) byKey[r.key] = { kart: r.kart || "kart1", cond: r.condition || "nominal", item: "L:" + (r.line || "center") };
+    }
+    for (const lvMap of Object.values(bd.localization || {})) {
+      for (const r of Object.values(lvMap || {})) {
+        if (r && r.key && !byKey[r.key]) byKey[r.key] = { kart: r.kart || "kart1", cond: r.condition || "nominal", item: "L:" + (r.line || "center") };
       }
     }
     return { laps, clips, classes, byKey, karts: [...karts].sort(), conds: condSet, lines: U.lineKeys(LINES, lineSet) };
@@ -126,11 +138,12 @@ const Viewer = (() => {
     if (V.ro) V.ro.disconnect();
     if (!V.idx.karts.length) { el.replaceChildren(); return; }
     const charts = h("div", { class: "charts", id: "v-charts" });
+    V.lapBar = h("div", { class: "lapbar", id: "v-lapbar" });
     V.map = h("div", { class: "map", id: "v-map" });
     V.legend = h("div", { class: "legend", id: "v-legend" });
     V.insetBox = h("div");
     if (!V.tip) { V.tip = h("div", { class: "vtip", id: "v-tip" }); document.body.append(V.tip); }
-    el.replaceChildren(h("div", { class: "viewer" }, buildSelects(), h("div", { class: "vbody" }, h("div", { class: "mapcol" }, V.map, V.legend, V.insetBox), charts)));
+    el.replaceChildren(h("div", { class: "viewer" }, buildSelects(), V.lapBar, h("div", { class: "vbody" }, h("div", { class: "mapcol" }, V.map, V.legend, V.insetBox), charts)));
     V.charts = charts;
     V.ro = new ResizeObserver(() => { const w = V.charts.clientWidth; for (const p of V.plots) if (Math.abs(p.width - w) > 1) p.setSize({ width: w, height: p.height }); });
     V.ro.observe(charts);
@@ -156,8 +169,35 @@ const Viewer = (() => {
     if (o.status === "error") return h("span", { class: "bad", text: "error" });
     if (o.cause) return h("span", { class: "bad", text: `${U.human(o.cause)} at ${ep.events[1].t.toFixed(1)} s` });
     if (ep.scenario.type === "clip") return m.recovered ? `recovered in ${U.num(m.recovery_s, 1)} s` : h("span", { class: "bad", text: "not recovered" });
-    const t = ep.log.t ? ep.log.t[ep.log.t.length - 1] : null;
-    return t !== null ? `lap ${U.num(t, 1)} s` : "";
+    const parts = [];
+    if (ep.laps_detail && ep.laps_detail.length > 1) {
+      parts.push(`${ep.laps_detail.length} laps · best ${U.num(m.best_lap_s, 2)} s`);
+    } else {
+      const t = ep.log.t ? ep.log.t[ep.log.t.length - 1] : null;
+      if (t !== null) parts.push(`lap ${U.num(t, 1)} s`);
+    }
+    if (o.overtake_completed) parts.push(`overtook at ${U.num(o.overtake_time_s, 1)} s`);
+    if (m.learned_to_slide) parts.push(`slide @ lap ${m.laps_to_slide}`);
+    return parts.join(" · ");
+  }
+
+  function drawLapBar() {
+    if (!V.lapBar) return;
+    const laps = V.ep && V.ep.laps_detail;
+    if (!laps || laps.length <= 1) { V.lapBar.replaceChildren(); return; }
+    const best = Math.min(...laps.map((l) => l.lap_s));
+    V.lapBar.replaceChildren(
+      h("span", { class: "lb-lbl", text: "Laps" }),
+      ...laps.map((l) => h("button", {
+        type: "button",
+        class: "lpill" + (l.lap_s === best ? " best" : "") + (l.slide_pct_p95 >= 100 ? " slide" : ""),
+        title: `Lap ${l.lap}: ${l.lap_s.toFixed(2)} s · CTE p90 ${l.cte_p90.toFixed(2)} m · Slide p95 ${l.slide_pct_p95.toFixed(0)}%`,
+        onclick: () => {
+          const i = V.T.findIndex((t) => t >= l.t_start);
+          if (i >= 0) { stop(); setPin(i); }
+        },
+      }, `L${l.lap} ${l.lap_s.toFixed(2)}s`))
+    );
   }
 
   function shortOutcome(ep) {
@@ -318,6 +358,13 @@ const Viewer = (() => {
       root.append(d);
       return d;
     });
+    V.oppDots = V.eps.map((e, j) => {
+      if (!e || !e.log.opp_x) return null;
+      const d = svg("g", { visibility: "hidden", class: "oppdot", "data-job": j, "data-mark": "opponent" });
+      d.append(svg("path", { d: "M9 0 L-6 -6 L-3 0 L-6 6 Z", fill: "#B5651D", stroke: "#fff", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+      root.append(d);
+      return d;
+    });
     const first = V.dots.find(Boolean);
     if (first) first.id = "v-dot";
     const sig = `${cx},${cy},${s}`;
@@ -389,14 +436,97 @@ const Viewer = (() => {
   async function showTerms(ev, g, k) {
     const i = g.planIdx, ep = V.eps[g.job];
     if (i === undefined || i < 0 || !ep) return;
-    const url = `/api/episodes/${encodeURIComponent(V.jobs[g.job].id)}/${ep.key}/plan/${i}`;
-    V.termCache ||= new Map();
-    if (!V.termCache.has(url)) V.termCache.set(url, U.api(url));
-    const r = await V.termCache.get(url);
-    if (!r.ok || g.planIdx !== i) return;
-    const row = r.body.steps[k] || [], tot = row.reduce((a, b) => a + b, 0), f = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2));
-    V.tip.replaceChildren(h("b", { text: `step ${k + 1}  ${f(tot)}` }), ...r.body.terms.map((t, m) => [t, row[m]]).filter(([, v]) => Math.abs(v) > 1e-3).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 5).map(([t, v]) => h("div", { text: `${t} ${f(v)}` })));
+    let terms = ep.plan && ep.plan.terms, steps = ep.plan && ep.plan.steps && ep.plan.steps[i];
+    if (!steps) {
+      const url = `/api/episodes/${encodeURIComponent(V.jobs[g.job].id)}/${ep.key}/plan/${i}`;
+      V.termCache ||= new Map();
+      if (!V.termCache.has(url)) V.termCache.set(url, U.api(url));
+      const r = await V.termCache.get(url);
+      if (!r.ok || g.planIdx !== i) return;
+      terms = r.body.terms; steps = r.body.steps;
+    }
+    const row = (steps && steps[k]) || [], tot = row.reduce((a, b) => a + b, 0), f = (v) => (Math.abs(v) >= 100 ? v.toFixed(0) : v.toFixed(2));
+    V.tip.replaceChildren(h("b", { text: `step ${k + 1}  ${f(tot)}` }), ...(terms || []).map((t, m) => [t, row[m]]).filter(([, v]) => Math.abs(v) > 1e-3).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 5).map(([t, v]) => h("div", { text: `${t} ${f(v)}` })));
     Object.assign(V.tip.style, { display: "block", left: ev.clientX + 12 + "px", top: ev.clientY + 12 + "px" });
+  }
+
+  const COST_TERMS = ["d", "heading", "speed", "delta", "delta_rate", "accel", "progress", "terminal_heading", "a_lat", "edge"];
+  function ensurePlanCosts(ep) {
+    if (!ep || !ep.plan || ep.plan.cost || !ep.plan.xy || !ep.plan.xy.length || !ep.line || !ep.line.x) return;
+    if (ep.plan.planner !== undefined && ep.plan.planner !== 2 && ep.plan.planner !== 3) return;
+    const lx = ep.line.x, ly = ep.line.y, nL = lx.length;
+    if (nL < 4) return;
+    const lpsi = new Float64Array(nL), ls = new Float64Array(nL);
+    for (let i = 0; i < nL; i++) {
+      const i0 = i > 0 ? i - 1 : 0, i1 = i + 1 < nL ? i + 1 : nL - 1;
+      lpsi[i] = Math.atan2(ly[i1] - ly[i0], lx[i1] - lx[i0]);
+      if (i > 0) ls[i] = ls[i - 1] + Math.hypot(lx[i] - lx[i - 1], ly[i] - ly[i - 1]);
+    }
+    const length = ls[nL - 1] + Math.hypot(lx[0] - lx[nL - 1], ly[0] - ly[nL - 1]);
+    const wb = (ep.geom && ep.geom.wheelbase) || 1.05, dt = 0.05, cMax = (20 * Math.PI / 180) / 0.38;
+    const wrap = (a) => ((a + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
+    const fc = [];
+    for (let k = 0; k <= 140; k++) {
+      const d = -7.0 + k * 0.1, ex = Math.max(0, Math.abs(d) - 0.273315);
+      fc.push(+(8.85 * d * d + 1456.58 * ex * ex).toPrecision(6));
+    }
+    ep.plan.field = { d0: -7.0, dd: 0.1, c: fc };
+    ep.plan.terms = COST_TERMS.slice();
+    ep.plan.best = []; ep.plan.cost = []; ep.plan.steps = [];
+    const sums = [];
+    let jHint = 0;
+    for (let p = 0; p < ep.plan.xy.length; p++) {
+      const xy = ep.plan.xy[p], N = (xy.length >> 1) - 1;
+      if (N < 1) { ep.plan.best.push(0); ep.plan.cost.push([]); ep.plan.steps.push([]); sums.push(new Array(10).fill(0)); continue; }
+      const pSteps = [], pCost = [], tSum = new Array(10).fill(0);
+      let prevPsi = Math.atan2(xy[3] - xy[1], xy[2] - xy[0]), prevV = Math.hypot(xy[2] - xy[0], xy[3] - xy[1]) / dt;
+      let prevCmd = 0, prevS = 0, best = 0;
+      for (let k = 0; k < N; k++) {
+        const x0 = xy[2 * k], y0 = xy[2 * k + 1], x1 = xy[2 * k + 2], y1 = xy[2 * k + 3];
+        const tv = Math.hypot(x1 - x0, y1 - y0) / dt, tpsi = Math.atan2(y1 - y0, x1 - x0);
+        let jBest = jHint, d2Best = Infinity;
+        const span = k === 0 ? nL : 80, start = k === 0 ? 0 : jHint - 20;
+        for (let m = 0; m < span; m++) {
+          const j = ((start + m) % nL + nL) % nL, dx = x1 - lx[j], dy = y1 - ly[j], d2 = dx * dx + dy * dy;
+          if (d2 < d2Best) { d2Best = d2; jBest = j; }
+        }
+        jHint = jBest;
+        const jPsi = lpsi[jBest], ex = x1 - lx[jBest], ey = y1 - ly[jBest];
+        const s = ls[jBest] + ex * Math.cos(jPsi) + ey * Math.sin(jPsi);
+        const d = -ex * Math.sin(jPsi) + ey * Math.cos(jPsi);
+        const psiErr = wrap(tpsi - jPsi), vErr = tv - 10.0;
+        const dpsi = k === 0 ? 0 : wrap(tpsi - prevPsi);
+        const tanW = (dpsi * wb) / Math.max(tv * dt, 0.1);
+        const cmd = Math.max(-cMax, Math.min(cMax, Math.atan(tanW) / 0.38));
+        const dDiff = k === 0 ? 0 : cmd - prevCmd;
+        const accel = k === 0 ? 0 : Math.max(-3.0, Math.min(5.3, (tv - prevV) / dt));
+        let prog = k === 0 ? 0 : s - prevS;
+        if (prog < -length / 2) prog += length; else if (prog > length / 2) prog -= length;
+        const aLat = (tv * tv * tanW) / wb, aEx = Math.max(0, Math.abs(aLat) - 5.3), eEx = Math.max(0, Math.abs(d) - 0.273315);
+        const row = [
+          8.85 * d * d, 2.97 * psiErr * psiErr, 30.69 * vErr * vErr,
+          0.05 * cmd * cmd, 0.12 * dDiff * dDiff, 2.0 * accel * accel,
+          -6.23 * prog, k === N - 1 ? 11.35 * psiErr * psiErr : 0,
+          0.0836 * aEx * aEx, 1456.58 * eEx * eEx,
+        ];
+        let stepTot = 0;
+        for (let m = 0; m < 10; m++) { stepTot += row[m]; tSum[m] += row[m]; }
+        pSteps.push(row); pCost.push(+stepTot.toPrecision(4)); best += stepTot;
+        prevPsi = tpsi; prevV = tv; prevCmd = cmd; prevS = s;
+      }
+      ep.plan.best.push(+best.toPrecision(6)); ep.plan.cost.push(pCost); ep.plan.steps.push(pSteps); sums.push(tSum);
+    }
+    if (ep.log && ep.log.t && ep.plan.t.length) {
+      const pt = ep.plan.t, lt = ep.log.t;
+      ep.log.cost = [];
+      ep.log.cost_terms = {};
+      for (const n of COST_TERMS) ep.log.cost_terms[n] = [];
+      for (let i = 0; i < lt.length; i++) {
+        const k = planIdx(ep, lt[i]);
+        ep.log.cost.push(k >= 0 ? ep.plan.best[k] : null);
+        for (let m = 0; m < 10; m++) ep.log.cost_terms[COST_TERMS[m]].push(k >= 0 ? +sums[k][m].toPrecision(4) : null);
+      }
+    }
   }
 
   // cost mode: hovering the driven path shows that tick's cost breakdown, hovering the field its position cost
@@ -537,9 +667,17 @@ const Viewer = (() => {
       gl.k.setAttribute("data-job", j);
       return gl;
     });
+    const oppGlyphs = V.eps.map((e, j) => {
+      if (!e || !e.log.opp_x || !e.geom) return null;
+      const gl = kartGlyph(e.geom, "#B5651D");
+      gl.k.setAttribute("data-mark", "opponent");
+      gl.k.setAttribute("opacity", "0.75");
+      world.append(gl.k);
+      return gl;
+    });
     for (let j = glyphs.length - 1; j >= 0; j--) if (glyphs[j]) world.append(glyphs[j].k);   // first job on top
-    const view = plans.some(Boolean) ? VIEW_PLAN : VIEW;
-    V.kart = { root, world, glyphs, plans, view: V.insetView && V.insetView[0] === view ? V.insetView[1] : view, base: view };
+    const view = plans.some(Boolean) || oppGlyphs.some(Boolean) ? VIEW_PLAN : VIEW;
+    V.kart = { root, world, glyphs, oppGlyphs, plans, view: V.insetView && V.insetView[0] === view ? V.insetView[1] : view, base: view };
     root.addEventListener("wheel", (ev) => {
       ev.preventDefault();
       V.kart.view = Math.min(80, Math.max(2, V.kart.view * Math.exp(ev.deltaY * 0.0015)));
@@ -564,13 +702,17 @@ const Viewer = (() => {
     V.insetU = u;
     let centred = false;
     V.eps.forEach((e, j) => {
-      const gl = K.glyphs[j];
+      const gl = K.glyphs[j], ogl = K.oppGlyphs && K.oppGlyphs[j];
       if (!gl) return;
       const i = V.M[j][u];
       gl.k.setAttribute("visibility", i < 0 ? "hidden" : "visible");
+      if (ogl) ogl.k.setAttribute("visibility", i < 0 || !e.log.opp_x || e.log.opp_x[i] === null ? "hidden" : "visible");
       if (i < 0) return;
       const L = e.log;
       placeGlyph(gl, L, i);
+      if (ogl && L.opp_x && L.opp_x[i] !== null) {
+        ogl.k.setAttribute("transform", `translate(${L.opp_x[i]} ${-L.opp_y[i]}) rotate(${(-(L.opp_yaw[i] || 0) * 180) / Math.PI})`);
+      }
       const pg = K.plans[j], pi = pg ? planIdx(e, L.t[i]) : -1, xy = pi >= 0 ? e.plan.xy[pi] : null;
       if (pg) pg.setAttribute("visibility", xy ? "visible" : "hidden");
       if (xy && pg.segs) { pg.segs.planIdx = pi; paintSegs(pg.segs, xy, e.plan.cost[pi], (x, y) => [x, -y]); }
@@ -594,11 +736,11 @@ const Viewer = (() => {
   function moveDot(u) {
     V.cur = u;
     if (u !== null && u !== undefined && u >= 0) V.last = u;
-    if (!V.ep || u === null || u === undefined || u < 0) { for (const d of V.dots.concat(V.planMap, V.planMap.map((p) => p && p.end))) if (d) d.setAttribute("visibility", "hidden"); return; }
+    if (!V.ep || u === null || u === undefined || u < 0) { for (const d of V.dots.concat(V.oppDots || [], V.planMap, V.planMap.map((p) => p && p.end))) if (d) d.setAttribute("visibility", "hidden"); return; }
     if (V.follow) setVB();
     const k = V.vb[2] / V.mapSize;
     V.eps.forEach((e, j) => {
-      const d = V.dots[j], pl = V.planMap[j];
+      const d = V.dots[j], od = V.oppDots && V.oppDots[j], pl = V.planMap[j];
       if (!d) return;
       const i = V.M[j][u];
       const pi = i >= 0 && pl ? planIdx(e, e.log.t[i]) : -1, xy = pi >= 0 ? e.plan.xy[pi] : null;
@@ -609,10 +751,15 @@ const Viewer = (() => {
         const [ex, ey] = V.proj(xy[xy.length - 2], xy[xy.length - 1]);
         pl.end.setAttribute("transform", `translate(${ex.toFixed(2)} ${ey.toFixed(2)}) scale(${k.toFixed(4)})`);
       }
-      if (i < 0) { d.setAttribute("visibility", "hidden"); return; }
+      if (i < 0) { d.setAttribute("visibility", "hidden"); if (od) od.setAttribute("visibility", "hidden"); return; }
       const [x, y] = V.proj(e.log.x[i], e.log.y[i]);
       d.setAttribute("transform", `translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${((-e.log.yaw[i] * 180) / Math.PI).toFixed(1)}) scale(${k.toFixed(4)})`);
       d.setAttribute("visibility", "visible");
+      if (od && e.log.opp_x && e.log.opp_x[i] !== null) {
+        const [ox, oy] = V.proj(e.log.opp_x[i], e.log.opp_y[i]);
+        od.setAttribute("transform", `translate(${ox.toFixed(2)} ${oy.toFixed(2)}) rotate(${((-(e.log.opp_yaw[i] || 0) * 180) / Math.PI).toFixed(1)}) scale(${k.toFixed(4)})`);
+        od.setAttribute("visibility", "visible");
+      } else if (od) od.setAttribute("visibility", "hidden");
     });
     moveInset(u);
   }
@@ -937,8 +1084,21 @@ const Viewer = (() => {
         Object.assign({ name: "Lateral", unit: "m/s²", series: [{ key: "ay_mps2", job: 0, label: "lateral", color: "#000", dp: 1 }] }, lat),
         { name: "Slide", unit: "% of peak", floor: 120, lines: [{ v: 100, color: "#B42318", dash: [4, 3] }], series: [{ key: "lat_front_pct", job: 0, label: "front", color: "#000", dp: 0 }, { key: "lat_rear_pct", job: 0, label: "rear", color: "#CFB991", dp: 0, width: 2 }] },
         { name: "Rear slip ratio", unit: "%", span: sx && sx * 1.5, lines: sx ? [{ v: sx, color: "#B42318", dash: [4, 3] }] : null, series: [{ key: "rear_slip_ratio", job: 0, label: "rear", color: "#000", dp: 1 }] },
-        { name: "Loc error", unit: "m", note: V.ep.loc ? `RMS ${V.ep.loc.rms.toFixed(2)} · p95 ${V.ep.loc.p95.toFixed(2)}` : "", lines: [{ v: 2, color: "#B42318", dash: [4, 3] }], series: [{ key: "loc_err", job: 0, label: "loc error", color: "#000", dp: 2 }] },
+        { name: "Loc error", unit: "m", note: V.ep.loc ? (V.ep.loc.p50 !== undefined ? `p50 ${V.ep.loc.p50.toFixed(2)} · p95 ${V.ep.loc.p95.toFixed(2)} · p99 ${V.ep.loc.p99.toFixed(2)} · RMS ${V.ep.loc.rms.toFixed(2)}` : `RMS ${V.ep.loc.rms.toFixed(2)} · p95 ${V.ep.loc.p95.toFixed(2)}`) : "", lines: [{ v: 2, color: "#B42318", dash: [4, 3] }], series: [{ key: "loc_err", job: 0, label: "loc error", color: "#000", dp: 2 }] },
       ];
+      if (V.ep.log.steer_current) {
+        specs.push({ name: "Steer current", unit: "A / Nm", series: [{ key: "steer_current", job: 0, label: "current (A)", color: "#000", dp: 2 }].concat(V.ep.log.aligning_torque ? [{ key: "aligning_torque", job: 0, label: "align (Nm)", color: "#CFB991", dp: 2, width: 2 }] : []) });
+      }
+      if (V.ep.log.opp_clearance) {
+        specs.push({ name: "Opponent", unit: "m", lines: [{ v: 0, color: "#B42318", dash: [4, 3] }], series: [{ key: "opp_clearance", job: 0, label: "clearance", color: "#000", dp: 2 }].concat(V.ep.log.opp_rel_s ? [{ key: "opp_rel_s", job: 0, label: "rel s", color: "#B5651D", dp: 1, width: 2 }] : []) });
+      }
+      if (V.ep.log.wm_loss || V.ep.log.actor_loss || V.ep.log.rl_alpha) {
+        const rls = [];
+        if (V.ep.log.wm_loss) rls.push({ key: "wm_loss", job: 0, label: "WM loss", color: "#000", dp: 3 });
+        if (V.ep.log.actor_loss) rls.push({ key: "actor_loss", job: 0, label: "actor", color: "#B5651D", dp: 3 });
+        if (V.ep.log.rl_alpha) rls.push({ key: "rl_alpha", job: 0, label: "alpha", color: "#CFB991", dp: 2, width: 2 });
+        specs.push({ name: "RL learning", unit: "loss / alpha", series: rls });
+      }
     }
     const cost = V.eps.some((e) => e && e.log.cost_terms);
     specs.forEach((s, i) => { chart(s, i === specs.length - 1); if (!i) { strip(); if (cost) costStrip(); } });
@@ -947,8 +1107,8 @@ const Viewer = (() => {
     V.charts.classList.remove("pinned");
   }
 
-  async function openAt(kart, cond, item) {
-    const keys = keyFor(kart, cond, item);
+  async function openAt(kart, cond, item, explicitKey) {
+    const keys = (!V.multi && explicitKey) ? [explicitKey] : keyFor(kart, cond, item);
     if (!keys) return;
     const cur = V.multi ? `${kart}|${cond}|${item}` : keys[0];
     api.current = cur; api.keys = keys;
@@ -957,16 +1117,20 @@ const Viewer = (() => {
     if (api.current !== cur) return;
     const eps = rs.map((r) => (r && r.ok ? r.body : null));
     if (!eps.some(Boolean)) return;
+    eps.forEach(ensurePlanCosts);
     stop();
     V.eps = eps;
     V.ep = eps.find(Boolean);
     V.sel.sk.value = kart; V.sel.sc.value = cond; V.sel.si.value = item;
     refresh();
-    const co = V.sel.cb.querySelector("option[value=cost]"), hasCost = eps.some((e) => e && e.log.cost);
-    co.disabled = co.hidden = !hasCost;
-    if (!hasCost && V.color === "cost") { V.color = V.sel.cb.value = ""; V.sel.cb.className = ""; }
+    for (const k of ["cost", "steer_current", "aligning_torque", "opp_clearance", "wm_loss"]) {
+      const co = V.sel.cb.querySelector(`option[value="${k}"]`), has = eps.some((e) => e && e.log[k]);
+      if (co) co.disabled = co.hidden = !has;
+      if (!has && V.color === k) { V.color = V.sel.cb.value = ""; V.sel.cb.className = ""; }
+    }
     outcomeText();
     merge();
+    drawLapBar();
     drawMap();
     drawCharts();
     V.last = 0;
@@ -975,7 +1139,7 @@ const Viewer = (() => {
 
   function open(key) {
     const loc = V.idx && V.idx.byKey[key];
-    if (loc) openAt(loc.kart, loc.cond, loc.item);
+    if (loc) openAt(loc.kart, loc.cond, loc.item, key);
   }
 
   return Object.assign(api, { mount, update, open, openAt, openDefault, pinned: () => (pinned() ? V.pin : null), time: () => (V.cur >= 0 ? V.T[V.cur] : null) });

@@ -1,5 +1,5 @@
 {
-  "Name": "Top Kart Twister 103/CH/17, Purdue EVC heavy",
+  "Name": "Top Kart Twister 103/CH/17, Purdue EVC A27 14 kW",
   "Type": "Vehicle",
   "Template": "WheeledVehicle",
   "Chassis": {
@@ -62,6 +62,59 @@
     "FR": 64.56,
     "RL": 63.62,
     "RR": 89.78
+  },
+  "Sensor Mounts": {
+    "imu_1": {
+      "parent_body": "chassis_front",
+      "pos_m": [
+        0.9476,
+        0.0033,
+        0.0782
+      ],
+      "rpy_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mass_kg": 0.045
+    },
+    "imu_2": {
+      "parent_body": "chassis_rear",
+      "pos_m": [
+        0.1852,
+        -0.0117,
+        0.072
+      ],
+      "rpy_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "mass_kg": 0.045
+    },
+    "gps_tower": {
+      "parent_body": "chassis_waist",
+      "base_pos_m": [
+        0.6397,
+        -0.1085,
+        0.046
+      ],
+      "height_m": 0.6096,
+      "mass_kg": 1.45,
+      "gps_antenna_xyz_m": [
+        0.6397,
+        -0.1085,
+        0.6736
+      ],
+      "front_camera_xyz_m": [
+        0.6717,
+        -0.1085,
+        0.6276
+      ],
+      "cam_pitch_deg": -14.0
+    },
+    "imu_1_to_imu_2_baseline_m": 0.7626,
+    "cad_stl": "data/cad/twister_full_kart_with_sensors.stl"
   },
   "Wheelbase": 1.05,
   "Minimum Turning Radius": 3.1,

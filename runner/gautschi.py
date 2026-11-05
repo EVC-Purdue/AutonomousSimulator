@@ -23,7 +23,8 @@ SSH = ["ssh", "-i", KEY, "-o", "BatchMode=yes", "-o", "ControlMaster=auto", "-o"
        "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=4", "-o", "ConnectTimeout=30"]
 PARTITION, ACCOUNT = "highmem", "lilly-rob1"
 OUT = "/scratch/gautschi/manors/AutoSim/out"   # episode results; home (25 GB quota) keeps SIFs, stacks and engines
-CORES = {"smoke": 96, "dev": 192, "large": 192}   # highmem takes 96 cores at least; dev and large get the whole node
+CORES = {"smoke": 96, "dev": 192, "large": 192, "control_sweep": 96, "localization": 96,
+         "overtake": 96, "slide": 96, "endurance_overtake": 96, "clips": 192, "all": 192}   # highmem takes 96 cores at least; dev, large, all get the whole node
 GPU = {"partition": "smallgpu", "cores": 64, "gpus": 1, "workers": 32}   # smallgpu takes 64 cores per GPU; user cap 64 cores
 CUDA = "/apps/gautschi/cuda/12.6"   # host CUDA toolkit; nvcc runs in the SIF so it uses the image's gcc 11
 CUDA_ARCH = "sm_89"   # L40
@@ -128,7 +129,7 @@ def build_stack(ref, h, where="gautschi"):
     log = os.path.join(store.RESULTS, "builds", h + ".log")
     with tempfile.TemporaryDirectory(dir=os.path.join(store.RESULTS, "builds")) as tmp, open(log, "w") as f:
         if ref.startswith("worktree:"):
-            root = ref[len("worktree:"):]
+            root = local._wt_dir(ref)
         else:
             root = tmp
             for part in ("src", "cuda"):

@@ -8,6 +8,7 @@
 !tracks
 !data/noise/*.json
 !data/noise/*.npz
+!data/cad/*.stl
 !docker/Dockerfile
 !docker/Dockerfile.base
 !docker/build_chrono.sh

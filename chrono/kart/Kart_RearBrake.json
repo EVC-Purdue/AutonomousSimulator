@@ -1,6 +1,6 @@
 {
-  "Name": "VESC regen, no mechanical brake",
+  "Name": "Mechanical + VESC regen rear brake",
   "Type": "Brake",
   "Template": "BrakeSimple",
-  "Maximum Torque": 20.81113636363636
+  "Maximum Torque": 90.0
 }

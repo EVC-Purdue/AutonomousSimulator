@@ -19,10 +19,28 @@ import numpy as np
 from harness import clips, config, lines, metrics, tiers
 from runner import jobs, store
 
+def _default_repo(name):
+    sib = os.path.join(os.path.dirname(config.ROOT), name)
+    return sib if os.path.exists(sib) else os.path.expanduser(f"~/PycharmProjects/{name}")
+
+
+def _wt_dir(ref):
+    p = ref[len("worktree:"):]
+    if os.path.exists(p):
+        return p
+    parent = os.path.dirname(config.ROOT)
+    base = os.path.basename(p.rstrip("/"))
+    for rel in (base, os.path.join(os.path.basename(os.path.dirname(p.rstrip("/"))), base)):
+        cand = os.path.join(parent, rel)
+        if os.path.exists(cand):
+            return cand
+    return p
+
+
 IMAGE = "evc-sim:dev"
 BATCH = 5
 HPC_THREADS = 256   # threads waiting on Gautschi episodes; one per episode exhausts the process at 10k
-AK_REPO = os.environ.get("AUTONOMOUS_KART_REPO", os.environ.get("AK_REPO", os.path.expanduser("~/PycharmProjects/AutonomousKart")))
+AK_REPO = os.environ.get("AUTONOMOUS_KART_REPO", os.environ.get("AK_REPO", _default_repo("AutonomousKart")))
 PARAMS_DIR = "src/autonomous_kart/autonomous_kart/params"
 RUN_CMD = ("source /opt/ros/humble/setup.bash && source /ws/install/setup.bash"
            " && python3 -m simnode.batch /batch.json /out")
@@ -59,7 +77,7 @@ def _git(*args):
 
 def stack_hash(ref):
     if ref.startswith("worktree:"):
-        wt = ref[len("worktree:"):]
+        wt = _wt_dir(ref)
         untracked = ""
         for f in sorted(_git("-C", wt, "ls-files", "--others", "--exclude-standard", "-z", "src").split("\0")):
             if f:
@@ -107,7 +125,7 @@ def recent_refs(n=40):
 def missing_sim_support(ref, h):
     """Why the stack at ref (built tree h) cannot run in the sim, or None."""
     if ref.startswith("worktree:"):
-        ok = os.path.exists(os.path.join(ref[len("worktree:"):], SIM_SUPPORT))
+        ok = os.path.exists(os.path.join(_wt_dir(ref), SIM_SUPPORT))
     else:
         ok = subprocess.run(["git", "-C", AK_REPO, "cat-file", "-e", f"{h}:{SIM_SUPPORT}"], capture_output=True).returncode == 0
     return None if ok else (f"{ref} lacks the sim-support changes: {SIM_SUPPORT} is missing. Merge or rebase onto the"
@@ -118,7 +136,7 @@ def stack_params(ref):
     """{node: parameter names} from the stack's params YAMLs at ref."""
     import yaml
     if ref.startswith("worktree:"):
-        d = os.path.join(ref[len("worktree:"):], PARAMS_DIR)
+        d = os.path.join(_wt_dir(ref), PARAMS_DIR)
         texts = []
         for n in sorted(os.listdir(d)):
             if n.endswith(".yaml"):
@@ -218,7 +236,7 @@ def build_stack(ref, h):
                     and subprocess.run(probe, capture_output=True).returncode == 0:
                 return volume
             if ref.startswith("worktree:"):
-                src = os.path.join(ref[len("worktree:"):], "src")
+                src = os.path.join(_wt_dir(ref), "src")
             else:
                 src = os.path.join(tmp, "src")
                 archive = subprocess.run(["git", "-C", AK_REPO, "archive", h, "src"], capture_output=True, check=True)
@@ -285,7 +303,11 @@ class Runner:
         m = metrics.compute(log, self._line(name), self._track, sc["type"], out["handoff_t"], out["peak_mu"],
                             metrics.thresholds(resolved))
         loc = metrics.loc_stats(rows)
-        m.update(loc_n=loc and loc["n"], loc_ss=loc and loc["ss"])   # the log is not kept for most episodes
+        m.update(loc_n=loc and loc["n"], loc_ss=loc and loc["ss"], loc_rms=loc and loc["rms"],
+                 loc_p50=loc and loc["p50"], loc_p95=loc and loc["p95"], loc_p99=loc and loc["p99"])
+        for ok_k in ("overtake_completed", "overtake_time_s", "min_clearance_m"):
+            if m.get(ok_k) is None and out.get(ok_k) is not None:
+                m[ok_k] = out[ok_k]
         return out, m
 
     def _record(self, jid, r, idx, memo=None):

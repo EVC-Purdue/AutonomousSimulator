@@ -16,9 +16,7 @@
     10
    ],
    "karts": [
-    "kart1",
-    "kart2",
-    "kart3"
+    "kart1"
    ],
    "conditions": [
     "steer_low_kart_low_sensors_low",
@@ -58,9 +56,7 @@
     10
    ],
    "karts": [
-    "kart1",
-    "kart2",
-    "kart3"
+    "kart1"
    ],
    "conditions": [
     "steer_low_kart_low_sensors_low",

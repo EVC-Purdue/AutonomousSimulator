@@ -61,7 +61,7 @@ const Compare = (() => {
     const wrap = h("div");
     const classes = CLASSES.filter((c) => d.clips[c]).concat(Object.keys(d.clips).filter((c) => !CLASSES.includes(c)));
     const karts = [...new Set(classes.flatMap((c) => Object.keys(d.clips[c])))].sort();
-    const g = h("div", { class: "cm" });
+    const g = h("div", { class: "cm", style: `grid-template-columns:184px repeat(${Math.max(1, karts.length)}, 128px)` });
     g.append(h("div"));
     karts.forEach((k) => g.append(h("div", { class: "kh", text: U.kart(k) })));
     for (const c of classes) {

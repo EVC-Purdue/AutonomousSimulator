@@ -10,7 +10,11 @@
   }
  },
  "sim": {
-  "cuda": true
+  "cuda": true,
+  "active_imu": "back",
+  "use_camera": false,
+  "controller_type": "mppi",
+  "baseline": true
  },
- "notes": "MPC on the CUDA kernel, 32768 samples (gautschi gpu only); kernel cost weights are compiled-in literals"
+ "notes": "MPC/MPPI on the CUDA kernel, 32768 samples (back IMU imu_2 on chassis_rear, no camera)"
 }

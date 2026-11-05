@@ -1,6 +1,0 @@
-{
-  "Name": "Twister frame twist",
-  "Type": "ChassisConnector",
-  "Template": "ChassisConnectorTorsion",
-  "Torsional Stiffness": 10279.06976744186
-}

@@ -542,9 +542,9 @@ def test_log_row_carries_the_rear_wheel_spin():
 
 
 def test_clip_ghost_compensates_the_kart_actuator_chain():
-    k = config.resolve_episode("kart2", "nominal", "stack-default", {"type": "lap", "line": "center", "laps": 1}, 0, "dev")["kart"]
+    k = config.resolve_episode("kart1", "nominal", "stack-default", {"type": "lap", "line": "center", "laps": 1}, 0, "dev")["kart"]
     path = {"t": np.array([0.0, 10.0]), "x": np.array([0.0, 50.0]), "y": np.zeros(2), "v": np.array([5.0, 7.0])}
-    g = E.clip_ghost(path, 1.15, k, 0.3)
+    g = E.clip_ghost(path, 1.05, k, 0.3)
     f = k["system_frequency"]
     assert abs(g.steer_gain - 0.3 * 2 * k["steering_motor"]["travel_deg"] / 60) < 1e-12  # wheel deg per steer deg
     assert abs(g.delay - CLIP_PREDICT * (k["actuator"]["steer_latency_ms"] / 1000 + 2 / f)) < 1e-12
@@ -616,7 +616,7 @@ def test_clip_context_ramps_to_the_recorded_speed_before_the_handoff():
 def test_plant_steer_gain_probe_matches_the_linkage_and_keeps_plant_time():
     pytest.importorskip("pychrono.vehicle")
     from simnode.plant import Plant
-    p = Plant(config.load("karts", "kart2"), config.ROOT)
+    p = Plant(config.load("karts", "kart1"), config.ROOT)
     t = p.t
     assert abs(p.steer_gain() - 0.3047) < 0.003 and p.t == t  # analytic linkage 1.53 deg of wheel at 5 deg of column, plot_steering.py
     p.close()
@@ -692,3 +692,57 @@ def test_context_trace_maps_a_slowed_context_back_to_recorded_time():
     d = failures.context_features(*tc, line)
     assert np.array_equal(tc[0], ta[0]) and np.max(np.abs(d["cte"] - a["cte"])[1:]) < 0.01 and np.max(np.abs(d["head"] - a["head"])[1:]) < 0.5
     assert np.max(np.abs(tc[4] - ta[4])[1:]) < 0.1  # speed over the ramped factor is the recorded speed (rows differenced across the ramp kinks)
+
+
+def test_opponent_kart_clearance_and_overtake_and_collision():
+    from simnode.opponent import OpponentKart, obb_clearance_m
+    from harness import failures
+    line = lines.load_line("center")
+    k = config.load("karts", "kart1")
+    opp = OpponentKart({"enabled": True, "mode": "kart_5kw", "power_kw": 5.0, "spawn_ahead_m": 10.0}, line, k, np.random.default_rng(0))
+    st = opp.step(0.0, 1 / 60, float(line.x[0]), float(line.y[0]), float(line.psi[0]), 0.0, 0, True)
+    assert st["opp_x"] is not None and st["opp_clearance_m"] > 5.0 and not opp.overtake_completed
+    st2 = opp.step(5.0, 1 / 60, float(line.x[50]), float(line.y[50]), float(line.psi[50]), 25.0, 0, True)
+    assert opp.overtake_completed and opp.overtake_time_s == pytest.approx(5.0)
+    assert obb_clearance_m(0.0, 0.0, 0.0, 0.5, 0.0, 0.0) < 0.0
+    log = {"t": np.array([0.0, 1.0]), "auto": np.array([1, 1]), "odom_age_s": np.zeros(2), "ekf_err_m": np.zeros(2),
+           "cmd_age_s": np.zeros(2), "yaw_rate": np.zeros(2), "vx": np.full(2, 5.0), "vy": np.zeros(2),
+           "wheel_l_deg": np.zeros(2), "wheel_r_deg": np.zeros(2), "x": np.zeros(2), "y": np.zeros(2), "yaw": np.zeros(2),
+           "opp_clearance_m": np.array([2.0, -0.1])}
+    assert failures.first_failure(log, None, failures.DEFAULT_THR) == ("collision", 1.0)
+
+
+def test_steering_motor_current_and_ekf_fusion():
+    from simnode.steering_motor import SteeringMotor
+    k = config.load("karts", "kart1")
+    m = SteeringMotor({**k["steering_motor"], "latency_ms": k["actuator"]["steer_latency_ms"]}, np.random.default_rng(0), 1 / 60)
+    m.command(15.0, 0.0)
+    m.step(0.05)
+    assert m.current_a(8.0) > m.current_a(0.0) >= 0.0
+    rt = object.__new__(E._Runtime)
+    rt.odom = (0.0, 1.0, 0.0, 0.0)
+    rt.odom_rear = True
+    rt.ant_hist = [(0, 0.0, 0.0, 0.0, 0.0, 0.0)]
+    rt.slam, rt.gs3d = None, None
+    e_raw = rt.ekf_err()[0]
+    rt.slam = types.SimpleNamespace(last={"x": 0.05, "y": 0.0, "pos_sigma_m": 0.05})
+    e_slam = rt.ekf_err()[0]
+    rt.gs3d = types.SimpleNamespace(last={"x": 0.02, "y": 0.0, "pos_sigma_m": 0.03, "confidence": 0.9})
+    e_both = rt.ekf_err()[0]
+    assert e_both < e_slam < e_raw
+
+
+def test_cad_sensor_mounts_and_a26_baseline_recipes_check_params():
+    from runner import local
+    from simnode.plant import imu_accel_at
+    k = config.load("karts", "kart1")
+    a_front = imu_accel_at([0.0, 0.0, 9.81], [0.0, 0.0, 2.0], k["mounts"]["imu_front"]["pos_m"])
+    a_back = imu_accel_at([0.0, 0.0, 9.81], [0.0, 0.0, 2.0], k["mounts"]["imu_back"]["pos_m"])
+    assert a_front[0] != a_back[0] and a_front[2] == pytest.approx(9.81)
+    for name in ("a26-pp-stack", "a26-mppi-stack", "a26-mpii-stack", "a26-mpc-stack"):
+        rec = config.load("recipes", name)
+        local.check_params(rec["source"]["ref"], rec["params"])
+        r = config.resolve_episode("kart1", "nominal", name, {"type": "lap", "line": "center", "laps": 1}, 0, "smoke")
+        assert r["recipe"]["sim"]["active_imu"] == "back" and r["recipe"]["sim"]["use_camera"] is False
+        assert r["kart"]["sensors"]["camera"]["enabled"] is False
+        assert r["kart"]["sensors"]["slam"]["enabled"] is False and r["kart"]["sensors"]["gs3d"]["enabled"] is False

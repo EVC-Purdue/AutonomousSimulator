@@ -61,6 +61,8 @@ class NmeaServer:
         self.pending[c] = buf
 
     def write(self, lines):
+        if not lines and self.clients and not any(self.pending.values()):
+            return
         self.poll()
         if not lines:
             return

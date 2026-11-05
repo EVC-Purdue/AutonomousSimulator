@@ -1,8 +1,92 @@
 {
  "name": "kart1",
  "chrono_dir": "chrono/kart",
+ "cad": {
+  "full_kart_stl": "data/cad/twister_full_kart_with_sensors.stl",
+  "bare_kart_stl": "data/cad/twister_kart.stl",
+  "sensor_rig_stl": "data/cad/twister_sensor_rig.stl",
+  "imu_1_stl": "data/cad/twister_imu_1.stl",
+  "imu_2_stl": "data/cad/twister_imu_2.stl",
+  "gps_tower_mast_stl": "data/cad/twister_gps_tower_mast.stl",
+  "gps_puck_stl": "data/cad/twister_gps_puck.stl",
+  "tower_cam_stl": "data/cad/twister_tower_cam.stl",
+  "sensor_mounts_json": "data/cad/sensor_mounts.json"
+ },
+ "mounts": {
+  "antenna": [
+   0.6397,
+   -0.1085,
+   0.6736
+  ],
+  "baseline_m": 0.7626,
+  "baseline_az_deg": 90.0,
+  "active_imu": "back",
+  "use_camera": false,
+  "imu_front": {
+   "name": "imu_1",
+   "label": "IMU 1 (Front Waist / Floorpan)",
+   "parent_body": "chassis_front",
+   "pos_m": [
+    0.9476,
+    0.0033,
+    0.0782
+   ],
+   "rpy_deg": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mass_kg": 0.045
+  },
+  "imu_back": {
+   "name": "imu_2",
+   "label": "IMU 2 (Back Rear Crossbar B3)",
+   "parent_body": "chassis_rear",
+   "pos_m": [
+    0.1852,
+    -0.0117,
+    0.072
+   ],
+   "rpy_deg": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "mass_kg": 0.045
+  },
+  "gps_tower": {
+   "name": "gps_tower",
+   "label": "2-ft 80/20 GPS + Camera Tower",
+   "parent_body": "chassis_waist",
+   "x_m": 0.6397,
+   "y_m": -0.1085,
+   "z_base_m": 0.046,
+   "height_m": 0.6096,
+   "profile_width_m": 0.0381,
+   "l_bracket_leg_m": 0.05,
+   "l_bracket_yaw_deg": 0.0,
+   "gps_antenna_xyz_m": [
+    0.6397,
+    -0.1085,
+    0.6736
+   ],
+   "front_camera_xyz_m": [
+    0.6717,
+    -0.1085,
+    0.6276
+   ],
+   "cam_pitch_deg": -14.0,
+   "cam_yaw_deg": 0.0,
+   "cam_fov_v_deg": 58.0,
+   "cam_fov_h_deg": 86.0,
+   "mass_kg": 1.45
+  }
+ },
+ "power_limit_kw": 14.0,
+ "mechanical_brake": true,
  "tyres": {
-  "grip": 1.0
+  "grip": 1.0,
+  "stiffness": 1.0
  },
  "frame": {
   "torsion_scale": 1.0
@@ -13,7 +97,9 @@
   "step_deg": 0.9,
   "slop_deg": 0.0,
   "center_offset_deg": 0.0,
-  "position_uncertainty_deg": 0.0
+  "position_uncertainty_deg": 0.0,
+  "current_per_nm": 0.45,
+  "current_noise_a": 0.08
  },
  "actuator": {
   "latency_ms": 0.0,
@@ -23,6 +109,11 @@
  "sensors": {
   "gps": {
    "enabled": true,
+   "pos_m": [
+    0.6397,
+    -0.1085,
+    0.6736
+   ],
    "fix_chain": "measured",
    "fixed_gm_sigma_m": 0.006,
    "fixed_gm_tau_s": 7.0,
@@ -37,13 +128,65 @@
   },
   "imu": {
    "enabled": true,
+   "name": "imu_2",
+   "location": "back",
+   "parent_body": "chassis_rear",
+   "pos_m": [
+    0.1852,
+    -0.0117,
+    0.072
+   ],
    "vibration_scale": 0.3,
    "dlpf_hz": 0
+  },
+  "imu2": {
+   "enabled": true,
+   "name": "imu_1",
+   "location": "front",
+   "parent_body": "chassis_front",
+   "pos_m": [
+    0.9476,
+    0.0033,
+    0.0782
+   ],
+   "vibration_scale": 0.25,
+   "dlpf_hz": 44
+  },
+  "camera": {
+   "enabled": false,
+   "parent_body": "gps_tower",
+   "pos_m": [
+    0.6717,
+    -0.1085,
+    0.6276
+   ],
+   "pitch_deg": -14.0,
+   "yaw_deg": 0.0,
+   "fov_v_deg": 58.0,
+   "fov_h_deg": 86.0
   },
   "wheel": {
    "white_mps": 0.03,
    "scale_error": 0.01,
    "rate_hz": 100.0
+  },
+  "slam": {
+   "enabled": false,
+   "rate_hz": 30.0,
+   "latency_ms": 20.0,
+   "pos_sigma_m": 0.015,
+   "yaw_sigma_deg": 0.25,
+   "drift_mps": 0.004
+  },
+  "gs3d": {
+   "enabled": false,
+   "rate_hz": 15.0,
+   "latency_ms": 35.0,
+   "inlier_prob": 0.92,
+   "inlier_sigma_m": 0.018,
+   "deadband_min_m": 0.08,
+   "deadband_max_m": 0.85,
+   "yaw_sigma_deg": 0.2
   },
   "steer_encoder": {
    "enabled": false,

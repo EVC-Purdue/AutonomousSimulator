@@ -65,16 +65,16 @@ def test_job_slice(client):
     c, ids = client
     jid = ids["mpc-h60"]
     eps = store.episodes(jid)
-    d = c.get(f"/api/jobs/{jid}?kart=kart2").get_json()
-    assert d["headline"]["n"]["value"] == sum(1 for e in eps if e["kart_name"] == "kart2")
-    assert d["headline"]["cte_p90"]["per_kart"].keys() == {"kart2"}
-    assert {k for ks in d["breakdown"]["laps"].values() for k in ks} == {"kart2"}
-    assert {k for ks in d["breakdown"]["clips"].values() for k in ks} == {"kart2"}
+    d = c.get(f"/api/jobs/{jid}?kart=kart1").get_json()
+    assert d["headline"]["n"]["value"] == sum(1 for e in eps if e["kart_name"] == "kart1")
+    assert d["headline"]["cte_p90"]["per_kart"].keys() == {"kart1"}
+    assert {k for ks in d["breakdown"]["laps"].values() for k in ks} == {"kart1"}
+    assert {k for ks in d["breakdown"]["clips"].values() for k in ks} == {"kart1"}
     d = c.get(f"/api/jobs/{jid}?kart=kart1&line=line1").get_json()
     assert d["headline"]["n"]["value"] == sum(1 for e in eps if e["kart_name"] == "kart1"
                                               and e["scenario"].get("line") == "line1")
     assert d["breakdown"]["clips"] == {} and set(d["breakdown"]["laps"]["nominal"]["kart1"]) == {"line1"}
-    assert d["options"]["cls"] == {c: False for c in d["options"]["cls"]} and d["options"]["kart"]["kart3"]
+    assert d["options"]["cls"] == {c: False for c in d["options"]["cls"]} and d["options"]["kart"]["kart1"]
     d = c.get(f"/api/jobs/{jid}?kart=kart1&condition=grip_low").get_json()
     assert set(d["breakdown"]["laps"]) == {"grip_low"} and d["breakdown"]["clips"] == {}
     d = c.get(f"/api/jobs/{jid}?cls=oscillation").get_json()
@@ -101,7 +101,7 @@ def test_build_log(client):
 def test_episode(client):
     c, ids = client
     b = c.get(f"/api/jobs/{ids['pure-pursuit']}").get_json()["breakdown"]
-    for key in (b["laps"]["nominal"]["kart2"]["line1"]["key"],
+    for key in (b["laps"]["nominal"]["kart1"]["line1"]["key"],
                 b["clips"]["oscillation"]["kart1"]["episodes"][0]["key"]):
         e = c.get(f"/api/episodes/{ids['pure-pursuit']}/{key}").get_json()
         assert {"log", "events", "line", "track", "outcome", "context_valid"} <= set(e)
@@ -253,16 +253,16 @@ def test_compare_slice(client):
 def test_compare_cells(client):
     c, ids = client
     two = [ids["pure-pursuit"], ids["mpc-h60"]]
-    d = c.get("/api/compare?ids=" + ",".join(two) + "&kart=kart2").get_json()
-    single = [c.get(f"/api/jobs/{i}?kart=kart2").get_json()["breakdown"] for i in two]
-    cells = d["laps"]["grip_low"]["kart2"]["line1"]
-    assert [x["key"] for x in cells] == [b["laps"]["grip_low"]["kart2"]["line1"]["key"] for b in single]
+    d = c.get("/api/compare?ids=" + ",".join(two) + "&kart=kart1").get_json()
+    single = [c.get(f"/api/jobs/{i}?kart=kart1").get_json()["breakdown"] for i in two]
+    cells = d["laps"]["grip_low"]["kart1"]["line1"]
+    assert [x["key"] for x in cells] == [b["laps"]["grip_low"]["kart1"]["line1"]["key"] for b in single]
     assert {"cte_p90", "status", "cause", "key", "t"} <= set(cells[0])
-    osc = d["clips"]["oscillation"]["kart2"]
-    assert len(osc) == 2 and [x["recovery_rate"] for x in osc] == [b["clips"]["oscillation"]["kart2"]["recovery_rate"] for b in single]
-    assert {e["clip_id"] for e in osc[0]["episodes"]} == {e["clip_id"] for e in single[0]["clips"]["oscillation"]["kart2"]["episodes"]}
+    osc = d["clips"]["oscillation"]["kart1"]
+    assert len(osc) == 2 and [x["recovery_rate"] for x in osc] == [b["clips"]["oscillation"]["kart1"]["recovery_rate"] for b in single]
+    assert {e["clip_id"] for e in osc[0]["episodes"]} == {e["clip_id"] for e in single[0]["clips"]["oscillation"]["kart1"]["episodes"]}
     m = next(m for m in d["metrics"] if m["name"] == "cte_p90")
-    assert m["values"] == [c.get(f"/api/jobs/{i}?kart=kart2").get_json()["headline"]["cte_p90"]["value"] for i in two]
+    assert m["values"] == [c.get(f"/api/jobs/{i}?kart=kart1").get_json()["headline"]["cte_p90"]["value"] for i in two]
 
 
 def test_leaderboard_marks_old_engine(client, built):
@@ -301,8 +301,8 @@ def test_leaderboard_sorted(client):
 def test_meta(client):
     c, ids = client
     m = c.get("/api/meta").get_json()
-    assert {r["name"] for r in m["recipes"]} >= {"pure-pursuit", "stack-default"}
-    assert m["tiers"]["smoke"]["episodes"] == 3 * 3 + 4 * 3 * 3 and m["tiers"]["dev"]["episodes"] == 3 * 3 * 3 + 8 * 3
+    assert {r["name"] for r in m["recipes"]} >= {"pure-pursuit", "stack-default", "A27 MPCC", "A27 Trained RL Controller"}
+    assert m["tiers"]["smoke"]["episodes"] == 3 + 4 * 3 and m["tiers"]["dev"]["episodes"] == 3 * 3 + 8
     assert m["tiers"]["dev"]["cost_usd"] > m["tiers"]["smoke"]["cost_usd"] > 0
     assert m["default_ref"].startswith("worktree:")
     assert m["tiers"]["dev"]["rows"] == 2 and m["tiers"]["smoke"]["rows"] == 2 and m["default_tier"] == "dev"
@@ -494,11 +494,11 @@ def test_loc_rms_autonomous_after_first_odom(client):
     assert web_app._loc_stats([{"ekf_err_m": 0.0, "phase": 2, "auto": 1}]) is None   # no odom yet
     c, ids = client
     d = c.get(f"/api/jobs/{ids['mpc-h60']}").get_json()["headline"]["loc_rms"]
-    assert d["value"] == pytest.approx(0.05, abs=1e-3) and set(d["per_kart"]) == {"kart1", "kart2", "kart3"}
-    assert os.path.exists(os.path.join(store.job_dir(ids["mpc-h60"]), "loc_rms.json")) == (jobs.get(ids["mpc-h60"])["status"] == "done")
+    assert d["value"] == pytest.approx(0.05, abs=1e-3) and set(d["per_kart"]) == {"kart1"}
+    assert os.path.exists(os.path.join(store.job_dir(ids['mpc-h60']), "loc_rms.json")) == (jobs.get(ids['mpc-h60'])["status"] == "done")
     assert c.get(f"/api/jobs/{ids['mpc-h60']}?kart=worst").get_json()["headline"]["loc_rms"]["worst_kart"] in d["per_kart"]
     key = c.get(f"/api/jobs/{ids['mpc-h60']}").get_json()["breakdown"]["laps"]["nominal"]["kart1"]["center"]["key"]
-    assert c.get(f"/api/episodes/{ids['mpc-h60']}/{key}").get_json()["loc"] == {"rms": 0.05, "p95": 0.05}
+    assert c.get(f"/api/episodes/{ids['mpc-h60']}/{key}").get_json()["loc"] == {"rms": 0.05, "p50": 0.05, "p95": 0.05, "p99": 0.05}
     assert c.get(f"/api/jobs/{ids['mpc-h80']}").get_json()["headline"]["loc_rms"]["value"] is not None
     assert not os.path.exists(os.path.join(store.job_dir(ids["mpc-h80"]), "loc_rms.json"))   # running: never cached incomplete
 

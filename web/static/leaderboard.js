@@ -1,14 +1,40 @@
-// Leaderboard: one row per recipe, every column sorts on the server, row click opens the job.
+// Leaderboard: Artificial Analysis-style composite index, suite sub-scores, and engineering metrics per recipe.
 (() => {
   const { h } = U;
   const M = U.METRICS;
+  const mCol = (k, label, group, cls) => ({
+    key: k, label: label || M[k].label, group: group || null, num: true, cls: cls || "",
+    dir: M[k].low ? "asc" : "desc",
+    fmt: (v) => (v === null || v === undefined ? "" : M[k].fmt(v) + (M[k].unit === "%" ? "%" : "")),
+  });
   const COLS = [
     { key: "recipe", label: "Recipe", cls: "rec", dir: "asc" },
     { key: "notes", label: "Notes", cls: "notes", dir: "asc" },
     { key: "user", label: "User", cls: "user", dir: "asc" },
-    ...["cte_p50", "cte_p90", "cte_p99", "recovery_rate", "safety", "osc_10", "laps_pct"].map((k) => ({
-      key: k, label: k.startsWith("cte_") ? k.slice(4) : M[k].label, group: k.startsWith("cte_"), num: true,
-      dir: M[k].low ? "asc" : "desc", fmt: (v) => (v === null || v === undefined ? "" : M[k].fmt(v) + (M[k].unit === "%" ? "%" : "")) })),
+    mCol("composite_score", "Index", null, "score"),
+    mCol("score_control", "Ctrl", "Suites"),
+    mCol("score_localization", "Loc", "Suites"),
+    mCol("score_overtake", "Pass", "Suites"),
+    mCol("score_slide", "Slide", "Suites"),
+    mCol("score_endurance", "50L", "Suites"),
+    mCol("score_clips", "Clips", "Suites"),
+    mCol("best_lap_s", "best", "Lap (s)"),
+    mCol("lap_time_90", "90%", "Lap (s)"),
+    mCol("lap_time_99", "99%", "Lap (s)"),
+    mCol("cte_p50", "p50", "CTE"),
+    mCol("cte_p90", "p90", "CTE"),
+    mCol("cte_p99", "p99", "CTE"),
+    mCol("loc_p50", "p50", "Loc Err"),
+    mCol("loc_p95", "p95", "Loc Err"),
+    mCol("loc_p99", "p99", "Loc Err"),
+    mCol("overtake_rate", "Pass %", "Overtake"),
+    mCol("min_clearance_m", "Clear (m)", "Overtake"),
+    mCol("collision_rate", "Col %", "Overtake"),
+    mCol("lap_improvement_s", "Lap Gain"),
+    mCol("recovery_rate", "Recovery"),
+    mCol("safety", "Safety"),
+    mCol("osc_10", "Osc > 10"),
+    mCol("laps_pct", "Laps"),
     { key: "errors", label: "Err", num: true, cls: "bad", dir: "desc", fmt: (v) => (v ? String(v) : "") },
     { key: "ran_at", label: "Ran", num: true, cls: "dim", dir: "desc", fmt: (v) => (v ? new Date(v).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "") },
     { key: "duration_s", label: "Duration", num: true, cls: "dim", dir: "asc", fmt: (s) => dur(s) },
@@ -31,12 +57,17 @@
 
   function head() {
     const top = h("tr"), sub = h("tr");
-    for (const c of COLS) {
-      if (!c.group) top.append(th(c, { rowspan: 2 }));
-      else {
-        if (c.key === "cte_p50") top.append(h("th", { class: "grp", colspan: 3 }, h("span", { text: "CTE" })));
-        sub.append(th(c));
+    let i = 0;
+    while (i < COLS.length) {
+      const c = COLS[i];
+      if (!c.group) { top.append(th(c, { rowspan: 2 })); i++; continue; }
+      let span = 0;
+      while (i + span < COLS.length && COLS[i + span].group === c.group) {
+        sub.append(th(COLS[i + span]));
+        span++;
       }
+      top.append(h("th", { class: "grp", colspan: span }, h("span", { text: c.group })));
+      i += span;
     }
     document.getElementById("lb-head").replaceChildren(top, sub);
   }
@@ -48,7 +79,8 @@
     const r = await U.api(`/api/leaderboard?tier=${S.tier}&sort=${S.sort}&dir=${S.dir}`);
     if (tok !== seq) return;
     const body = document.getElementById("lb-body");
-    body.replaceChildren(...(r.ok ? r.body : []).map((row) => {
+    const rows = r.ok ? r.body.slice().sort((a, b) => Number(Boolean(a.stale)) - Number(Boolean(b.stale))) : [];
+    body.replaceChildren(...rows.map((row) => {
       const tr = h("tr", { "data-job": row.job_id, class: row.stale ? "old" : null, onclick: () => { location.href = "/?job=" + encodeURIComponent(row.job_id); } },
         COLS.map((c) => {
           const td = h("td", { class: (c.num ? "num " : "") + (c.cls || ""), text: c.fmt ? c.fmt(row[c.key]) : row[c.key] || "" });

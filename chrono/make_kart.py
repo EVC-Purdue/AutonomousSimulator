@@ -1,4 +1,4 @@
-"""Writes the Top Kart Twister (heavy, 275 lb) as Chrono::Vehicle JSON into chrono/kart/, and karts 2 and 3 into chrono/kart2/ and chrono/kart3/."""
+"""Writes the Top Kart Twister (heavy, 275 lb, A27 14 kW + mechanical brake) as Chrono::Vehicle JSON into chrono/kart/."""
 import json, math, os
 import numpy as np
 from tyres.kart_tyres import tmeasy_blocks
@@ -12,10 +12,10 @@ R_FRONT = 0.127                       # 10x4.50-5
 R_REAR = 0.1397                       # 11x7.10-5 nominal
 KINGPIN_X, KINGPIN_Y, KINGPIN_Z = 1.0795, 0.3398, 0.127
 KPI_DEG, CASTER_DEG = 10.5, 12.0
-ARM_LEN, ARM_DEG = 0.1200, 87.7       # "standard" spindle arm hole
+ARM_LEN, ARM_DEG = 0.1100, 98.0       # active inner spindle arm hole (IMG_8776: 13.0 cm - 2.0 cm = 110.0 mm, 8 deg inboard -> 318.2 mm tie rod in IMG_8773)
 COLUMN_LOW = np.array([1.021, 0.0, 0.130])
 COLUMN_DEG = 38.0
-SPADE_R, SPADE_SPAN = 0.050, 0.014    # bottom spade holes, 52 mm off the axis, measured from the Top Kart shaft in UPenn's LSBW CAD
+SPADE_R, SPADE_SPAN = 0.050, 0.014    # bottom spade holes, 50 mm off axis, 14 mm lateral offset (IMG_8775, IMG_8783)
 COLUMN_MAX_DEG = 70.0
 TOE_OUT_TOTAL_M = 0.0025
 
@@ -28,10 +28,10 @@ CG = np.array([(CORNER_LB["FL"] + CORNER_LB["FR"]) / _W * WHEELBASE,
 TORSION_K = 1.0 / (1.0 / 17000.0 + 1.0 / 26000.0)   # sim/mj/kart.py front and rear torsion joints in series, N m/rad
 CONNECTOR = np.array([0.55, 0.0, 0.055])
 
-# Powertrain: mj_kart_september_spec.json values (94.8 N m, 2632 W, 39.3 N m) rescaled so this model's full-throttle and braking curves hit the September fit, a = min(5.62, 21.1/v) and 2.33 m/s^2
-WHEEL_TORQUE, WHEEL_POWER, BRAKE_TORQUE = 94.8 * 5.62 / 5.18, 2632.0 * 1.135, 39.3 * 2.33 / 2.20
+# Powertrain: A27 14 kW real power limit + mechanical rear brake + VESC regen
+WHEEL_TORQUE, WHEEL_POWER, BRAKE_TORQUE = 220.0, 14000.0, 180.0
 GEAR = 65.0 / 15.0
-V_MAX = 12.0
+V_MAX = 15.0
 R_ROLL = 10.411 * 0.0254 / 2.0        # measured loaded rolling radius, powertrain.py
 MU = 0.91                             # 2026-09-19 spinouts; TTC slip at peak agrees with the measured 11.5% knee
 
@@ -41,19 +41,25 @@ STEER_MASS = 1.5
 FRONT_CHASSIS = dict(mass=12.0, com=np.array([0.85, 0.0, 0.10]), I=[0.50, 0.17, 0.65])
 REAR_I = [5.0, 4.6, 8.4]
 TYRE_STIFFNESS = 1.0
-NAME = "Top Kart Twister 103/CH/17, Purdue EVC heavy"
+NAME = "Top Kart Twister 103/CH/17, Purdue EVC A27 14 kW"
 
-# Karts 2 and 3 override the kart 1 values above; every kart is over 250 lb and brakes by VESC regen only
+# Sensor mounts from CAD (sim/model/sensor_mounts.json): two IMUs + 2-ft 80/20 GPS/Camera tower
+IMU_1_POS = [0.9476, 0.0033, 0.0782]       # imu_1 (Front IMU on chassis_front waist/floorpan), 0.045 kg
+IMU_2_POS = [0.1852, -0.0117, 0.0720]      # imu_2 (Back IMU on chassis_rear crossbar B3), 0.045 kg
+GPS_TOWER_BASE = [0.6397, -0.1085, 0.0460] # 2-ft 80/20 tower base on chassis_waist (height 0.6096 m, 1.45 kg)
+GPS_ANTENNA_POS = [0.6397, -0.1085, 0.6736]
+FRONT_CAMERA_POS = [0.6717, -0.1085, 0.6276]
+SENSOR_MOUNTS = {
+    "imu_1": {"parent_body": "chassis_front", "pos_m": IMU_1_POS, "rpy_deg": [0.0, 0.0, 0.0], "mass_kg": 0.045},
+    "imu_2": {"parent_body": "chassis_rear", "pos_m": IMU_2_POS, "rpy_deg": [0.0, 0.0, 0.0], "mass_kg": 0.045},
+    "gps_tower": {"parent_body": "chassis_waist", "base_pos_m": GPS_TOWER_BASE, "height_m": 0.6096, "mass_kg": 1.45,
+                  "gps_antenna_xyz_m": GPS_ANTENNA_POS, "front_camera_xyz_m": FRONT_CAMERA_POS, "cam_pitch_deg": -14.0},
+    "imu_1_to_imu_2_baseline_m": 0.7626,
+    "cad_stl": "data/cad/twister_full_kart_with_sensors.stl",
+}
+
 KARTS = {
     "kart": {},
-    "kart2": dict(  # heavy, long, slow-steering, understeering EV, chosen to differ clearly from kart 1; every value an estimate
-        NAME="Heavy long-wheelbase EV (estimates)", WHEELBASE=1.150, KINGPIN_X=1.1795, COLUMN_LOW=np.array([1.121, 0.0, 0.130]),
-        CASTER_DEG=8.0, ARM_LEN=0.1200, ARM_DEG=89.5, SPADE_R=0.038,  # outer spindle-arm hole (almost parallel), 38 mm spade
-        M_TOTAL=150.0, CORNER_LB=None, CG=np.array([0.38 * 1.150, 0.0, 0.200]), REAR_I=[6.5, 6.5, 12.0], TYRE_STIFFNESS=1.3,
-        TORSION_K=1.5 / (1.0 / 17000.0 + 1.0 / 26000.0)),
-    "kart3": dict(  # UPenn AV4EV (github.com/mlab-upenn/gokart-mechatronics, MIT): motor turns a horizontal cut-down Top Kart shaft
-        NAME="UPenn AV4EV Top Kart, steer-by-wire on the spade", COLUMN_LOW=np.array([0.985, 0.0, 0.170]), COLUMN_DEG=0.0,
-        M_TOTAL=115.0, CORNER_LB=None, CG=np.array([0.400, 0.0, 0.170]), TYRE_STIFFNESS=0.7),
 }
 
 
@@ -180,7 +186,7 @@ def build(name):
                        "Point to Draglink": list(spade_holes()[1] - front_loc), "Maximum Angle (deg)": COLUMN_MAX_DEG}})
     for n, d in (("Kart_WheelFront.json", FRONT_PARTS["wheel"]), ("Kart_WheelRear.json", REAR_PARTS["wheel"])):
         w(n, {"Name": n[:-5], "Type": "Wheel", "Template": "Wheel", "Mass": d, "Inertia": [0.004, 0.006, 0.004]})
-    w("Kart_RearBrake.json", {"Name": "VESC regen, no mechanical brake", "Type": "Brake", "Template": "BrakeSimple",
+    w("Kart_RearBrake.json", {"Name": "Mechanical + VESC regen rear brake", "Type": "Brake", "Template": "BrakeSimple",
                               "Maximum Torque": BRAKE_TORQUE / 2.0})
     w("Kart_NoBrake.json", {"Name": "no front brakes", "Type": "Brake", "Template": "BrakeSimple", "Maximum Torque": 0.0})
     w("Kart_Driveline.json", {
@@ -188,15 +194,15 @@ def build(name):
         "Shaft Direction": {"Motor Block": [0, 1, 0], "Axle": [0, 1, 0]},
         "Shaft Inertia": {"Driveshaft": 0.056, "Differential Box": 0.01},
         "Gear Ratio": {"Conical Gear": 1.0}, "Axle Differential Locking Limit": 1.0e5})
-    w("Kart_Motor.json", {"Name": "Motenergy ME0708 on VESC", "Type": "Engine", "Template": "EngineSimple",
+    w("Kart_Motor.json", {"Name": "Motenergy ME1306 on VESC", "Type": "Engine", "Template": "EngineSimple",
                           "Maximum Engine Torque": WHEEL_TORQUE / GEAR, "Maximum Engine Power": WHEEL_POWER,
                           "Maximum Engine Speed": V_MAX / R_ROLL * GEAR})
     w("Kart_Chain.json", {"Name": "15T/65T chain", "Type": "Transmission", "Template": "AutomaticTransmissionSimpleMap",
                           "Gear Box": {"Reverse Gear Ratio": -1.0 / GEAR, "Forward Gear Ratios": [1.0 / GEAR],
                                        "Shift Points Map RPM": [[0, 1.0e5]]}})
     fz_f = M_TOTAL * 9.81 * CG[0] / WHEELBASE / 2; fz_r = M_TOTAL * 9.81 * (1 - CG[0] / WHEELBASE) / 2
-    w("Kart_TireFront.json", tmeasy("10x4.50-5 slick", "front", R_FRONT, 0.114, FRONT_PARTS["tire"], fz_f))
-    w("Kart_TireRear.json", tmeasy("11x7.10-5 slick", "rear", r_rear, 0.180, REAR_PARTS["tire"], fz_r))
+    w("Kart_TireFront.json", tmeasy("Hoosier 4.5/10.0-5 R60A slick", "front", R_FRONT, 0.114, FRONT_PARTS["tire"], fz_f))
+    w("Kart_TireRear.json", tmeasy("Hoosier 7.1/11.0-5 R60A slick", "rear", r_rear, 0.180, REAR_PARTS["tire"], fz_r))
 
     p = name + "/"
     w("Kart_Vehicle.json", {
@@ -213,6 +219,7 @@ def build(name):
              "Left Brake Input File": p + "Kart_RearBrake.json", "Right Brake Input File": p + "Kart_RearBrake.json"}],
         "Steering Subsystems": [{"Input File": p + "Kart_Column.json", "Location": list(front_loc), "Orientation": [1, 0, 0, 0]}],
         **({"Corner Weights [lb]": CORNER_LB} if CORNER_LB else {}),   # not read by Chrono; the CG above is derived from it
+        "Sensor Mounts": SENSOR_MOUNTS,
         "Wheelbase": WHEELBASE, "Minimum Turning Radius": 3.1, "Maximum Steering Angle (deg)": 30,
         "Driveline": {"Input File": p + "Kart_Driveline.json", "Suspension Indexes": [1]}})
     print(name, "rear chassis mass %.2f com %s, rear r0 %.4f, toe %.3f deg, torsion %.0f N m/rad" % (m_rear, rear_com.round(4), r_rear, toe_deg, TORSION_K))

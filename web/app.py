@@ -20,7 +20,11 @@ from harness import clips, config, lines, metrics, tiers
 from harness.metrics import UNSAFE
 from runner import jobs, local, store
 
-METRICS = ("cte_p50", "cte_p90", "cte_p99", "recovery_rate", "recovery_s_median", "safety", "osc_10", "osc_20",
+METRICS = ("composite_score", "score_control", "score_localization", "score_overtake", "score_slide",
+           "score_endurance", "score_clips", "cte_p50", "cte_p90", "cte_p99", "best_lap_s", "lap_time_90",
+           "lap_time_99", "lap_time_999", "loc_p50", "loc_p95", "loc_p99", "loc_rms", "overtake_rate",
+           "overtake_s_median", "min_clearance_m", "collision_rate", "learned_to_slide_rate", "laps_to_slide",
+           "slide_pct_p95", "lap_improvement_s", "recovery_rate", "recovery_s_median", "safety", "osc_10", "osc_20",
            "osc_30", "laps_pct")
 SUBSYSTEMS = ("steering", "actuator", "frame", "grip", "wheel", "gps", "imu")
 TAIL = {"all_low": ("all", "low"), "all_high": ("all", "high"), "heading_dual": ("heading", "dual"),
@@ -28,7 +32,7 @@ TAIL = {"all_low": ("all", "low"), "all_high": ("all", "high"), "heading_dual": 
 CORE_S, GIB_S, CORES, GIB = 0.0000131, 0.00000222, 2, 3   # Modal standard rates, runner container size
 DEFAULT_WALL_S = 120.0
 COST_TERMS = ("d", "heading", "speed", "delta", "delta_rate", "accel", "progress", "terminal_heading", "a_lat", "edge")  # mpc.COST_TERMS order
-TIERS = ("smoke", "dev", "large")
+TIERS = ("smoke", "control_sweep", "localization", "overtake", "slide", "endurance_overtake", "clips", "all", "dev", "large")
 _cache = {}
 VIEW_CACHE = None   # gzipped API responses; None is results/view_cache
 _CODE_V = hashlib.sha1(b"".join(open(os.path.join(config.ROOT, f), "rb").read() for f in
@@ -38,6 +42,17 @@ _CODE_V = hashlib.sha1(b"".join(open(os.path.join(config.ROOT, f), "rb").read() 
 def conditions():
     names = sorted(f[:-5] for f in os.listdir(os.path.join(config.CONFIGS, "conditions")) if f.endswith(".json"))
     out = [{"name": "nominal", "group": "nominal", "level": ""}]
+    for nl in ("low", "medium", "high"):
+        for tl in ("low", "medium", "high"):
+            n = f"noise_{nl}_tire_{tl}"
+            if n in names:
+                out.append({"name": n, "group": f"noise {nl}", "level": f"tire {tl}"})
+    loc_labels = [("gps_imu", "GPS+IMU"), ("slam", "SLAM"), ("3dgs", "3DGS"), ("slam_3dgs", "SLAM+3DGS")]
+    for mode, label in loc_labels:
+        for nl in ("low", "medium", "high"):
+            n = f"loc_{mode}_{nl}"
+            if n in names:
+                out.append({"name": n, "group": label, "level": f"noise {nl}"})
     for sub in SUBSYSTEMS:
         out += [{"name": f"{sub}_{lv}", "group": sub, "level": lv} for lv in ("low", "high") if f"{sub}_{lv}" in names]
     out += [{"name": n, "group": g, "level": lv} for n, (g, lv) in TAIL.items() if n in names]
@@ -50,6 +65,73 @@ def _track():
         t = lines.load_track()
         _cache["track"] = {k: np.round(getattr(t, k), 3).tolist() for k in ("outer", "inner")}  # the spline polygons on_track uses
     return _cache["track"]
+
+
+def _mpc_line(name):
+    key = "mpc_line:" + name
+    if key not in _cache:
+        ln = lines.load_line(name)
+        dx, dy = np.empty_like(ln.x), np.empty_like(ln.y)
+        dx[1:-1], dy[1:-1] = ln.x[2:] - ln.x[:-2], ln.y[2:] - ln.y[:-2]
+        dx[0], dy[0] = ln.x[1] - ln.x[0], ln.y[1] - ln.y[0]
+        dx[-1], dy[-1] = ln.x[-1] - ln.x[-2], ln.y[-1] - ln.y[-2]
+        _cache[key] = (ln.x, ln.y, ln.s, ln.vx, np.arctan2(dy, dx), ln.length)
+    return _cache[key]
+
+
+def _synthesize_mpc_costs(plans, name, wheelbase=1.05):
+    """Rebuilds MPC stage costs and position field for slimmed planner=2/3 rollouts whose costs were stripped."""
+    if not plans or "cost" in plans[0] or plans[0].get("planner") not in (2, 3):
+        return
+    valid = [p for p in plans if len(p.get("xy", ())) >= 4]
+    if not valid:
+        return
+    lx, ly, ls, lv, lpsi, length = _mpc_line(name)
+    dt = 0.05
+    fd = np.round(np.arange(-7.0, 7.0001, 0.1), 1)
+    fc = [float(f"{v:.6g}") for v in (8.85 * fd * fd + 1456.58 * np.maximum(0.0, np.abs(fd) - 0.273315) ** 2)]
+    plans[0]["field"] = {"d0": -7.0, "dd": 0.1, "c": fc}
+    by_len = {}
+    for idx, p in enumerate(plans):
+        if len(p.get("xy", ())) >= 4:
+            by_len.setdefault(len(p["xy"]), []).append(idx)
+    for n_xy, idxs in by_len.items():
+        xy = np.asarray([plans[i]["xy"] for i in idxs], float).reshape(len(idxs), n_xy // 2, 2)
+        dx, dy = np.diff(xy[:, :, 0], axis=1), np.diff(xy[:, :, 1], axis=1)
+        tv = np.hypot(dx, dy) / dt
+        tpsi = np.arctan2(dy, dx)
+        tx, ty = xy[:, 1:, 0], xy[:, 1:, 1]
+        d2 = (tx[..., None] - lx) ** 2 + (ty[..., None] - ly) ** 2
+        jmin = np.argmin(d2, axis=-1)
+        j_psi, j_s, j_vx = lpsi[jmin], ls[jmin], lv[jmin]
+        ex, ey = tx - lx[jmin], ty - ly[jmin]
+        s = j_s + ex * np.cos(j_psi) + ey * np.sin(j_psi)
+        d = -ex * np.sin(j_psi) + ey * np.cos(j_psi)
+        psi_err = (tpsi - j_psi + math.pi) % (2 * math.pi) - math.pi
+        v_err = tv - np.minimum(j_vx, 10.0)
+        dpsi = (np.diff(tpsi, axis=1, prepend=tpsi[:, :1]) + math.pi) % (2 * math.pi) - math.pi
+        tan_w = dpsi * wheelbase / np.maximum(tv * dt, 0.1)
+        cmd = np.clip(np.arctan(tan_w) / 0.38, -math.radians(20.0) / 0.38, math.radians(20.0) / 0.38)
+        d_diff = np.diff(cmd, axis=1, prepend=cmd[:, :1])
+        accel = np.clip(np.diff(tv, axis=1, prepend=tv[:, :1]) / dt, -3.0, 5.3)
+        progress = (np.diff(s, axis=1, prepend=s[:, :1]) + length / 2) % length - length / 2
+        a_lat = tv * tv * tan_w / wheelbase
+        edge_ex = np.maximum(0.0, np.abs(d) - 0.273315)
+        st_term_h = np.zeros_like(d)
+        st_term_h[:, -1] = 11.35 * psi_err[:, -1] ** 2
+        steps = np.stack([
+            8.85 * d * d, 2.97 * psi_err * psi_err, 30.69 * v_err * v_err,
+            0.05 * cmd * cmd, 0.12 * d_diff * d_diff, 2.0 * accel * accel,
+            -6.23 * progress, st_term_h,
+            0.0836 * np.maximum(0.0, np.abs(a_lat) - 5.3) ** 2,
+            1456.58 * edge_ex * edge_ex,
+        ], axis=-1)
+        bests = np.sum(steps, axis=(1, 2))
+        for k, p_idx in enumerate(idxs):
+            plans[p_idx]["cost"] = {
+                "best": float(f"{bests[k]:.6g}"),
+                "steps": [[float(f"{v:.6g}") for v in row] for row in steps[k]],
+            }
 
 
 def _line_xy(name):
@@ -83,16 +165,19 @@ def _labels(js):
 
 
 def _geom(kart):
-    """Top-down kart geometry (m) from its Chrono files: wheelbase, track widths, tyre [diameter, width]."""
+    """Top-down kart geometry (m) from its Chrono files: wheelbase, track widths, tyre [diameter, width], and CAD sensor mounts."""
     key = "geom:" + kart
     if key not in _cache:
-        d = os.path.join(config.ROOT, config.load("karts", kart)["chrono_dir"])
+        kcfg = config.load("karts", kart)
+        d = os.path.join(config.ROOT, kcfg["chrono_dir"])
         rd = lambda f: store.read_json(os.path.join(d, f))  # noqa: E731
         tyre = lambda f: [round(2 * rd(f)["Design"]["Unloaded Radius [m]"], 3), rd(f)["Design"]["Width [m]"]]  # noqa: E731
         _cache[key] = {"wheelbase": rd("Kart_Vehicle.json")["Wheelbase"],
                        "track_f": round(2 * rd("Kart_FrontCorner.json")["Spindle"]["COM"][1], 3),
                        "track_r": round(2 * rd("Kart_RearAxle.json")["Spindle"]["COM"][1], 3),
                        "tyre_f": tyre("Kart_TireFront.json"), "tyre_r": tyre("Kart_TireRear.json"),
+                       "mounts": kcfg.get("mounts"),
+                       "cad": kcfg.get("cad"),
                        "peak_slip_deg": {a: round(float(np.degrees(np.arctan(rd(f)["Parameters"]["Lateral"]["Slip sy at Maximum Fy"][0]))), 2)
                                          for a, f in (("front", "Kart_TireFront.json"), ("rear", "Kart_TireRear.json"))},   # TMeasy, nominal load
                        **{f"peak_{k}": {a: rd(f)["Parameters"][d][f"Slip {k} at Maximum F{k[1]}"][0]
@@ -155,7 +240,10 @@ def _with_globals(f, **names):
 
 
 _unsafe_ticks = _with_globals(metrics.unsafe_ticks, _footprint=_footprint)
-_count_tier = _with_globals(tiers.expand, resolve_episode=lambda *a: None)   # the episode list, unresolved: only its length is used
+
+
+def _count_tier(tier, recipe):
+    return _with_globals(tiers.expand, resolve_episode=lambda *a: None)(tier, recipe)   # the episode list, unresolved: only its length is used
 
 
 def _unsafe(rows, kart, handoff_t, peak_mu):
@@ -307,7 +395,7 @@ def _wall_estimate():
 
 def _default_tier(info):
     """The tier with the most episodes that has leaderboard rows, else the largest."""
-    order = sorted(TIERS, key=lambda t: info[t]["episodes"] or 0, reverse=True)
+    order = sorted(info, key=lambda t: info[t]["episodes"] or 0, reverse=True)
     return next((t for t in order if info[t]["rows"]), order[0])
 
 
@@ -327,7 +415,7 @@ def _parse_submit(d):
         errors["notes"] = "Must be text"
     tier, where = d.get("tier"), d.get("where", "local")
     if tier not in TIERS:
-        errors["tier"] = "smoke, dev or large"
+        errors["tier"] = ", ".join(TIERS)
     sim = d.get("sim") or {}
     if not isinstance(sim, dict):
         errors["sim"] = "Must be a JSON object"
@@ -335,8 +423,8 @@ def _parse_submit(d):
         errors["where"] = "local, modal, modal-gpu, gautschi, gautschi-gpu or ideas"
     elif where == "modal" and tier != "smoke":
         errors["where"] = "Modal runs smoke only"
-    elif where == "modal-gpu" and tier not in ("smoke", "dev"):
-        errors["where"] = "Modal gpu runs smoke and dev only"
+    elif where == "modal-gpu" and tier == "large":
+        errors["where"] = "Modal gpu runs smoke, dev and test suites only"
     elif isinstance(sim, dict) and sim.get("cuda") and where not in ("gautschi-gpu", "modal-gpu", "ideas"):
         errors["where"] = "CUDA recipes run on gautschi gpu, modal gpu or ideas only"
     return errors, params, tier, where
@@ -356,7 +444,7 @@ def _denied():
 
 def _worktree_ok(ref):
     """False for a worktree: ref whose directory is not on this host (a server builds from git)."""
-    return not ref.startswith("worktree:") or os.path.isdir(ref[len("worktree:"):])
+    return not ref.startswith("worktree:") or os.path.isdir(local._wt_dir(ref))
 
 
 def _smoked(recipe):
@@ -484,9 +572,28 @@ def create_app():
                        "phase": [r.get("phase", 2 if r["auto"] else 1) for r in rows],
                        "ay_mps2": [round(float(ayf[i]), 3) for i in keep], **_slip(rows, _geom(rec["kart_name"])["wheelbase"])}
                 log.update(_slide(rows, log, _geom(rec["kart_name"])))
+                if "steer_current_a" in rows[0]:
+                    log["steer_current"] = [round(r.get("steer_current_a", 0.0), 2) for r in rows]
+                if "aligning_torque_nm" in rows[0]:
+                    log["aligning_torque"] = [round(r.get("aligning_torque_nm", 0.0), 2) for r in rows]
+                if "opp_x" in rows[0]:
+                    log["opp_x"] = [round(r["opp_x"], 3) if r.get("opp_x") is not None else None for r in rows]
+                    log["opp_y"] = [round(r["opp_y"], 3) if r.get("opp_y") is not None else None for r in rows]
+                    log["opp_yaw"] = [round(r["opp_yaw"], 4) if r.get("opp_yaw") is not None else None for r in rows]
+                    log["opp_speed"] = [round(r.get("opp_vx", 0.0), 3) if r.get("opp_x") is not None else None for r in rows]
+                    log["opp_clearance"] = [round(r["opp_clearance_m"], 3) if r.get("opp_clearance_m") is not None and r["opp_clearance_m"] < 900 else None for r in rows]
+                if "wm_loss" in rows[0]:
+                    log["wm_loss"] = [round(r.get("wm_loss", 0.0), 4) for r in rows]
+                    log["actor_loss"] = [round(r.get("actor_loss", 0.0), 4) for r in rows]
+                    log["rl_alpha"] = [round(r.get("rl_alpha", 0.0), 3) for r in rows]
+                    log["shield_active"] = [int(r.get("shield_active", 0)) for r in rows]
         h = out.get("handoff_t") or 0.0
         plans = store.read_plan(key)
+        if plans and "cost" not in plans[0] and _job_or_404(job_id)["recipe"]["params"].get("pathfinder_node", {}).get("planner", "mpc") in ("mpc", "ilqr"):
+            _synthesize_mpc_costs(plans, name, _geom(rec["kart_name"])["wheelbase"])
         plan = {"t": [round(p["t"] - h, 3) for p in plans], "xy": [p["xy"] for p in plans]}   # the viewer draws the one nearest its cursor
+        if plans and "planner" in plans[0]:
+            plan["planner"] = plans[0]["planner"]
         if plans and "cost" in plans[0]:   # MPC: per-step totals per plan (terms on demand), best cost, the position cost field
             plan.update(terms=list(COST_TERMS), best=[p["cost"]["best"] for p in plans],
                         cost=[[float(f"{sum(r):.4g}") for r in p["cost"]["steps"]] for p in plans],
@@ -506,14 +613,25 @@ def create_app():
         return {"key": key, "kart": rec["kart_name"], "condition": rec["condition"], "scenario": sc,
                         "line_name": name, "log": log, "plan": plan, "events": events, "line": _line_xy(name), "track": _track(),
                         "geom": _geom(rec["kart_name"]), "outcome": out, "context_valid": out.get("context_valid", True) is not False,
-                        "metrics": {k: rec.get(k) for k in ("cte_p90", "recovered", "recovery_s", "peak_cte_after_m")},
-                        "unsafe": unsafe, "loc": loc and {k: loc[k] for k in ("rms", "p95")}, "lat_limit": None if out.get("peak_mu") is None else
+                        "laps_detail": rec.get("laps_detail") or [],
+                        "metrics": {k: rec.get(k) for k in ("cte_p90", "recovered", "recovery_s", "peak_cte_after_m",
+                                                            "best_lap_s", "lap_1_s", "final_lap_s", "lap_improvement_s",
+                                                            "slide_pct_p95", "learned_to_slide", "laps_to_slide",
+                                                            "overtake_completed", "overtake_time_s", "min_clearance_m")},
+                        "unsafe": unsafe, "loc": loc and {k: loc[k] for k in ("rms", "p50", "p95", "p99") if k in loc},
+                        "lat_limit": None if out.get("peak_mu") is None else
                         {"envelope": round(metrics.DEFAULT_THR["lat_frac"] * out["peak_mu"] * 9.81, 3), "grip": round(out["peak_mu"] * 9.81, 3)}}
 
     @app.get("/api/episodes/<job_id>/<key>/plan/<int:i>")
     def api_plan_terms(job_id, key, i):
-        _job_or_404(job_id)
+        job = _job_or_404(job_id)
         plans = store.read_plan(key)
+        if plans and "cost" not in plans[0] and job["recipe"]["params"].get("pathfinder_node", {}).get("planner", "mpc") in ("mpc", "ilqr"):
+            rec = next((r for r in jobs._sliced(job_id, {}) if r["key"] == key), None)
+            if rec is not None:
+                sc = rec["scenario"]
+                name = sc["line"] if sc["type"] == "lap" else clips.load(sc["clip_id"])["line"]
+                _synthesize_mpc_costs(plans, name, _geom(rec["kart_name"])["wheelbase"])
         if not 0 <= i < len(plans) or "cost" not in plans[i]:
             abort(404)
         return jsonify({"terms": list(COST_TERMS), "steps": plans[i]["cost"]["steps"]})

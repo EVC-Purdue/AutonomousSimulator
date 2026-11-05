@@ -6,8 +6,10 @@ import threading
 import modal
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-WT = os.environ.get("AK_SIM_WT", os.path.expanduser("~/PycharmProjects/AutonomousKart-sim"))
-REF = "worktree:" + WT
+_DEFAULT_WT = os.path.expanduser("~/PycharmProjects/AutonomousKart-sim")
+WT = os.environ.get("AK_SIM_WT", _DEFAULT_WT if os.path.exists(_DEFAULT_WT)
+                    else os.path.join(os.path.dirname(ROOT), "AutonomousKart-sim"))
+REF = "worktree:" + os.environ.get("AK_SIM_WT", _DEFAULT_WT)
 PRICE_CPU_S, PRICE_GIB_S = 0.0000131, 0.00000222
 CPU, MEM_MB = 1, 1024  # Modal bills max(request, use): 1 core measured 10% cheaper than 2; peak RSS about 1.35 GB
 MAX_CONTAINERS = 32
@@ -215,7 +217,7 @@ def pack(episodes):
 def stack_src(ref, h, cuda=False):
     """None for the stack baked into the image, else the tar.gz of src (and cuda, for GPU jobs) at commit h, built in
     each container."""
-    if ref == REF:
+    if ref in (REF, "worktree:" + WT):
         return None
     import subprocess
     from runner import local
@@ -262,11 +264,12 @@ def run_job(job_id, runner=None):
     from runner import jobs, local
     runner, job = runner or local.Runner(), jobs.get(job_id)
     gpu = job["where"] == "modal-gpu"
-    if job["tier"] not in (("smoke", "dev") if gpu else ("smoke",)):
+    allowed = ("smoke", "dev", "control_sweep", "localization", "overtake", "slide", "endurance_overtake", "clips", "all") if gpu else ("smoke",)
+    if job["tier"] not in allowed:
         runner._build_failed(job_id, text=f"Modal {'gpu runs smoke and dev' if gpu else 'runs smoke'} only, not {job['tier']}\n")
         return
     ref = job["recipe"]["source"]["ref"]
-    if ref.startswith("worktree:") and ref != REF:
+    if ref.startswith("worktree:") and ref not in (REF, "worktree:" + WT):
         runner._build_failed(job_id, text=f"Modal runs git refs or the worktree baked into its image, {REF}\n")
         return
     app_id, a = None, gpu_app if gpu else app

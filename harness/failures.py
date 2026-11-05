@@ -10,7 +10,7 @@ DEFAULT_THR = {"ctx_pos_m": 0.25, "ctx_head_deg": 3.0, "ctx_speed_frac": 0.10, "
                "rec_hold_s": 1.0, "spin_slip_deg": 30.0, "spin_excess_dps": 60.0, "spin_hold_s": 0.1,
                "odom_timeout_s": 0.5, "ekf_err_m": 2.0, "cmd_timeout_s": 0.5, "lat_frac": 0.95,
                "clip_min_eval_s": 15.0, "wheelbase_m": 1.05}  # wheelbase is kart 1's; thresholds() sets each kart's
-CTX_SIG = {"win_s": 4.0, "bias_n": 101, "osc_corr": 0.8, "osc_amp": 0.75, "moving_mps": 1.5}  # context signature: clips/mine.py OSC_WIN_S, bias window and MOVING_MPS, plus the weave match
+CTX_SIG = {"win_s": 4.0, "bias_n": 101, "osc_corr": 0.8, "osc_amp": 0.75, "moving_mps": 1.5}
 
 
 def thresholds(resolved, root=config.ROOT):
@@ -46,7 +46,9 @@ def _spin(log, thr):
 
 def first_failure(log, track, thr):
     auto = np.asarray(log["auto"]) > 0.5
+    coll = (np.asarray(log["opp_clearance_m"], float) < 0.0) if "opp_clearance_m" in log else np.zeros(len(auto), bool)
     conds = [("off_track", _footprint(track, log)[1] if track is not None else np.zeros(len(auto), bool)),
+             ("collision", coll),
              ("spin", _spin(log, thr)),
              ("localization_lost", (np.asarray(log["odom_age_s"]) > thr["odom_timeout_s"])
               | (np.asarray(log["ekf_err_m"]) > thr["ekf_err_m"])),

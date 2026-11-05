@@ -16,9 +16,32 @@ const U = (() => {
   const num = (v, d) => (v === null || v === undefined ? "" : Number(v).toFixed(d));
   const pct = (v) => (v === null || v === undefined ? "" : String(Math.round(v * 100)));
   const METRICS = {
+    composite_score: { label: "Composite Index", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    score_control: { label: "Control Score", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    score_localization: { label: "Loc Score", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    score_overtake: { label: "Overtake Score", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    score_slide: { label: "Slide Score", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    score_endurance: { label: "50-Lap Score", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    score_clips: { label: "Clips Score", unit: "/100", fmt: (v) => num(v, 1), dp: 1, low: false },
+    best_lap_s: { label: "Best Lap", unit: "s", fmt: (v) => num(v, 2), dp: 2, low: true },
+    lap_time_90: { label: "Lap @ 90%", unit: "s", fmt: (v) => num(v, 2), dp: 2, low: true },
+    lap_time_99: { label: "Lap @ 99%", unit: "s", fmt: (v) => num(v, 2), dp: 2, low: true },
+    lap_time_999: { label: "Lap @ 99.9%", unit: "s", fmt: (v) => num(v, 2), dp: 2, low: true },
     cte_p50: { label: "CTE p50", unit: "m", fmt: (v) => num(v, 2), dp: 2, low: true },
     cte_p90: { label: "CTE p90", unit: "m", fmt: (v) => num(v, 2), dp: 2, low: true },
     cte_p99: { label: "CTE p99", unit: "m", fmt: (v) => num(v, 2), dp: 2, low: true },
+    loc_p50: { label: "Loc p50", unit: "m", fmt: (v) => num(v, 3), dp: 3, low: true },
+    loc_p95: { label: "Loc p95", unit: "m", fmt: (v) => num(v, 3), dp: 3, low: true },
+    loc_p99: { label: "Loc p99", unit: "m", fmt: (v) => num(v, 3), dp: 3, low: true },
+    loc_rms: { label: "Loc RMS", unit: "m", fmt: (v) => num(v, 2), dp: 2, low: true },
+    overtake_rate: { label: "Overtake", unit: "%", fmt: pct, scale: 100, dp: 0, low: false },
+    overtake_s_median: { label: "Overtake time", unit: "s", fmt: (v) => num(v, 1), dp: 1, low: true },
+    min_clearance_m: { label: "Min clearance", unit: "m", fmt: (v) => num(v, 2), dp: 2, low: false },
+    collision_rate: { label: "Collision rate", unit: "%", fmt: pct, scale: 100, dp: 0, low: true },
+    learned_to_slide_rate: { label: "Slide learned", unit: "%", fmt: pct, scale: 100, dp: 0, low: false },
+    laps_to_slide: { label: "Laps to slide", unit: "laps", fmt: (v) => num(v, 1), dp: 1, low: true },
+    slide_pct_p95: { label: "Slide p95", unit: "%", fmt: (v) => num(v, 0), dp: 0, low: false },
+    lap_improvement_s: { label: "Lap gain", unit: "s", fmt: (v) => num(v, 2), dp: 2, low: false },
     recovery_rate: { label: "Recovery", unit: "%", fmt: pct, scale: 100, dp: 0, low: false },
     recovery_s_median: { label: "Recovery time", unit: "s", fmt: (v) => num(v, 1), dp: 1, low: true },
     safety: { label: "Safety", unit: "%", fmt: pct, scale: 100, dp: 0, low: false },
@@ -26,7 +49,6 @@ const U = (() => {
     osc_20: { label: "Osc > 20", unit: "/min", fmt: (v) => num(v, 1), dp: 1, low: true },
     osc_30: { label: "Osc > 30", unit: "/min", fmt: (v) => num(v, 1), dp: 1, low: true },
     laps_pct: { label: "Laps", unit: "%", fmt: (v) => num(v, 0), dp: 0, low: false },
-    loc_rms: { label: "Loc RMS", unit: "m", fmt: (v) => num(v, 2), dp: 2, low: true },
   };
   const UNSAFE = [["unsafe_lat", "lateral"], ["unsafe_rate", "rate limit"], ["unsafe_travel", "travel limit"], ["unsafe_spin", "spin"], ["unsafe_off", "off track"]];
   // safety breakdown tooltip: % of autonomous time per criterion, worst first; get(key) gives one value per job
@@ -53,8 +75,9 @@ const U = (() => {
   const date = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "");
   const shortRef = (ref) => (ref.startsWith("worktree:") ? ref.split("/").filter(Boolean).pop() : ref.slice(0, 7));
   const kart = (k) => (k ? k.replace("kart", "kart ") : "");
+  const shortLine = (l) => (l ? l.replace("_less_aggressive", "") : "");
   const human = (s) => s.replace(/_/g, " ");
-  const CAUSE = { spin: "spin", off_track: "off", localization_lost: "loc", no_commands: "cmd", error: "err", time_cap: "time" };
+  const CAUSE = { spin: "spin", off_track: "off", localization_lost: "loc", no_commands: "cmd", collision: "col", error: "err", time_cap: "time" };
   const tipEl = () => document.getElementById("tip");
   function tip(el, text) {
     el.addEventListener("mouseenter", () => { const s = typeof text === "function" ? text() : text; if (!s) return; const t = tipEl(); t.textContent = s; t.hidden = false; });
@@ -99,7 +122,7 @@ const U = (() => {
   }
   // lap columns: known lines in order, then any others (speed caps as line@cap) in natural order
   const lineKeys = (known, present) => { const p = new Set(present); return known.filter((l) => p.has(l)).concat([...p].filter((l) => !known.includes(l)).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))); };
-  return { lineKeys, h, num, pct, METRICS, unsafeText, rel, dur, date, shortRef, kart, human, CAUSE, tip, api, COLORS, SLICE, sliceQuery, sliceText, filters };
+  return { lineKeys, shortLine, h, num, pct, METRICS, unsafeText, rel, dur, date, shortRef, kart, human, CAUSE, tip, api, COLORS, SLICE, sliceQuery, sliceText, filters };
 })();
 
 document.getElementById("new-job").addEventListener("click", () => {

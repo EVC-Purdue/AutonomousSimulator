@@ -21,6 +21,7 @@ class SteeringMotor:
         self.err = 0.0
         self.rate_limited = False
         self.travel_limited = False
+        self.last_move_dps = 0.0
         self._a = np.exp(-ERR_KNOT_S / 1.0)  # error AR(1) coefficient per knot, tau 1 s
         self._b = cfg["position_uncertainty_deg"] / 2.0 * np.sqrt(1 - self._a * self._a)
         self._knot_t, self._e0, self._e1 = None, 0.0, 0.0
@@ -43,7 +44,9 @@ class SteeringMotor:
         want = goal - self._motor
         max_move = c["rate_dps"] * self.dt
         self.rate_limited = abs(want) > max_move
-        self._motor += float(min(max(want, -max_move), max_move))
+        move = float(min(max(want, -max_move), max_move))
+        self.last_move_dps = move / max(self.dt, 1e-6)
+        self._motor += move
         self.motor_deg = round(self._motor / c["step_deg"]) * c["step_deg"]
         half = c["slop_deg"] / 2.0
         self.col = float(min(max(self.col, self.motor_deg - half), self.motor_deg + half))
@@ -54,3 +57,9 @@ class SteeringMotor:
             self._e0, self._e1 = self._e1, self._a * self._e1 + self._b * self.rng.standard_normal()
         self.err = self._e0 + (self._e1 - self._e0) * (t - self._knot_t) / ERR_KNOT_S
         return self.col + c["center_offset_deg"] + self.err
+
+    def current_a(self, aligning_torque_nm=0.0):
+        """Steering-motor current (A) from tyre aligning torque plus motor rate effort."""
+        k_nm = self.cfg.get("current_per_nm", 0.45)
+        drive_a = 0.015 * self.last_move_dps
+        return float(k_nm * aligning_torque_nm + drive_a)

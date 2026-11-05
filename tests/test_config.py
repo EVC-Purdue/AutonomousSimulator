@@ -63,13 +63,15 @@ def test_cache_key_ignores_name_notes_tier():
 def test_params_by_kart_merge_after_recipe_params_for_that_kart_only():
     sc = {"type": "lap", "line": "center", "laps": 1}
     base = _rec(params={"pathfinder_node": {"planner": "ilqr", "mpc.actuator_gain": 0.38}})
-    rec = dict(base, params_by_kart={"kart2": {"pathfinder_node": {"mpc.actuator_gain": 0.42}, "imu_node": {"x": 1}}})
-    r1, r2 = (config.resolve_episode(k, "nominal", rec, sc, 0, "smoke") for k in ("kart1", "kart2"))
+    rec_other = dict(base, params_by_kart={"other": {"pathfinder_node": {"mpc.actuator_gain": 0.42}}})
+    rec_k1 = dict(base, params_by_kart={"kart1": {"pathfinder_node": {"mpc.actuator_gain": 0.42}, "imu_node": {"x": 1}}})
+    r1 = config.resolve_episode("kart1", "nominal", rec_other, sc, 0, "smoke")
+    r2 = config.resolve_episode("kart1", "nominal", rec_k1, sc, 0, "smoke")
     assert r1["recipe"]["params"] == base["params"]
     assert r2["recipe"]["params"] == {"pathfinder_node": {"planner": "ilqr", "mpc.actuator_gain": 0.42}, "imu_node": {"x": 1}}
     assert base["params"]["pathfinder_node"]["mpc.actuator_gain"] == 0.38
     assert config.cache_key(r1) == config.cache_key(config.resolve_episode("kart1", "nominal", base, sc, 0, "smoke"))
-    assert config.cache_key(r2) != config.cache_key(config.resolve_episode("kart2", "nominal", base, sc, 0, "smoke"))
+    assert config.cache_key(r2) != config.cache_key(config.resolve_episode("kart1", "nominal", base, sc, 0, "smoke"))
 
 
 def test_smoke_uncapped_dev_line_keys_are_shared_with_dev(monkeypatch):
@@ -78,7 +80,7 @@ def test_smoke_uncapped_dev_line_keys_are_shared_with_dev(monkeypatch):
              if "speed_cap" not in r["scenario"] and r["scenario"].get("line") in ("center", "line1")}   # smoke v3: capped clips and line3_less_aggressive are smoke only
     ids = sorted({r["scenario"]["clip_id"] for r in tiers.expand("smoke", _rec()) if r["scenario"]["type"] == "clip"})
     monkeypatch.setattr(clips, "accepted_ids", lambda revision=None: ids)
-    assert len(smoke) == 6 and smoke <= {config.cache_key(r) for r in tiers.expand("dev", _rec())}
+    assert len(smoke) == 2 and smoke <= {config.cache_key(r) for r in tiers.expand("dev", _rec())}
 
 
 def _tree(root):

@@ -8,8 +8,20 @@
       <button class="x" id="clear" type="button" aria-label="Clear selection" hidden>&times;</button>
     </div>
     <div class="list-filt">
-      <div class="seg" id="ftier"><button type="button" data-v="" class="on">all</button><button type="button" data-v="smoke">smoke</button><button type="button" data-v="dev">dev</button><button type="button" data-v="large">large</button></div>
-      <select id="fwhere" aria-label="Where"><option value="">all</option><option value="local">local</option><option value="modal">modal</option><option value="modal-gpu">modal gpu</option><option value="gautschi">gautschi</option><option value="gautschi-gpu">gautschi gpu</option></select>
+      <div class="seg seg-wrap" id="ftier">
+        <button type="button" data-v="" class="on">all</button>
+        <button type="button" data-v="smoke">smoke</button>
+        <button type="button" data-v="control_sweep">control</button>
+        <button type="button" data-v="localization">loc</button>
+        <button type="button" data-v="overtake">overtake</button>
+        <button type="button" data-v="slide">slide</button>
+        <button type="button" data-v="endurance_overtake">50-lap</button>
+        <button type="button" data-v="clips">clips</button>
+        <button type="button" data-v="all">suite</button>
+        <button type="button" data-v="dev">dev</button>
+        <button type="button" data-v="large">large</button>
+      </div>
+      <select id="fwhere" aria-label="Where"><option value="">all</option><option value="local">local</option><option value="modal">modal</option><option value="modal-gpu">modal gpu</option><option value="gautschi">gautschi</option><option value="gautschi-gpu">gautschi gpu</option><option value="ideas">ideas</option></select>
     </div>
     <div id="rows"></div>
   </aside>
@@ -24,8 +36,20 @@
       <div class="field" data-f="params"><label for="f-params">Parameters</label>
         <textarea id="f-params" spellcheck="false">{}</textarea></div>
       <div class="seg2">
-        <div class="field" data-f="tier"><label>Tier</label>
-          <div class="seg" id="f-tier"><button type="button" data-v="smoke" class="on">smoke</button><button type="button" data-v="dev">dev</button><button type="button" data-v="large">large</button></div></div>
+        <div class="field" data-f="tier"><label>Test Suite / Tier</label>
+          <div class="seg seg-grid" id="f-tier">
+            <button type="button" data-v="smoke" class="on">smoke</button>
+            <button type="button" data-v="control_sweep">control 3x3</button>
+            <button type="button" data-v="localization">localization</button>
+            <button type="button" data-v="overtake">overtake</button>
+            <button type="button" data-v="slide">slide (15L)</button>
+            <button type="button" data-v="endurance_overtake">50L + overtake</button>
+            <button type="button" data-v="clips">clips</button>
+            <button type="button" data-v="all">all tests</button>
+            <button type="button" data-v="dev">dev</button>
+            <button type="button" data-v="large">large</button>
+          </div>
+        </div>
       </div>
       <div class="field" data-f="user"><label for="f-user">User</label><input type="text" id="f-user" spellcheck="false"></div>
       <div class="field" data-f="notes"><label for="f-notes">Notes</label><input type="text" id="f-notes"></div>

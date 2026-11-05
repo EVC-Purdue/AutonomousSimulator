@@ -5,7 +5,7 @@ const S = { jobs: [], sel: null, checked: [], meta: { recipes: [], tiers: null, 
   timer: null, tier: "smoke", where: "ideas", paramsTouched: false, cells: {}, slice: {}, armed: null, armTimer: null, f: { q: "", tier: "", where: "" } };
 const main = document.getElementById("main");
 const ACTIVE = ["building", "running"];
-const LINES = ["center", "line1", "line4"];
+const LINES = ["center", "line1", "line3_less_aggressive", "line4"];
 const CLASSES = ["offset_aligned", "misaligned_on_line", "oscillation", "recoverable_failure"];
 const TRASH = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4h11M6 4V2.5h4V4M4 4l.7 9.5h6.6L12 4M6.8 6.5v4.5M9.2 6.5v4.5"/></svg>';
 
@@ -160,7 +160,14 @@ function renderFilters(opts) {
 function renderTiles(hd) {
   const out = h("div", { class: "tiles" });
   const val = (m) => hd[m] && hd[m].value !== null && hd[m].value !== undefined;
-  for (const m of ["cte_p50", "cte_p90", "cte_p99", "recovery_rate", "recovery_s_median", "safety", "osc", "laps_pct", "loc_rms"]) {
+  const order = [
+    "composite_score", "best_lap_s", "lap_improvement_s", "lap_time_90", "lap_time_99", "lap_time_999",
+    "cte_p50", "cte_p90", "cte_p99",
+    "loc_p50", "loc_p95", "loc_p99", "loc_rms",
+    "overtake_rate", "min_clearance_m", "collision_rate",
+    "recovery_rate", "recovery_s_median", "safety", "osc", "laps_pct",
+  ];
+  for (const m of order) {
     if (m === "osc") {
       if (!val("osc_10")) continue;
       const parts = [];
@@ -172,13 +179,74 @@ function renderTiles(hd) {
       out.append(tile("Osc > 10 / 20 / 30", parts, hd.osc_10.worst_kart, "osc"));
       continue;
     }
-    if (!val(m)) continue;
+    if (!val(m) || !U.METRICS[m]) continue;
     const d = U.METRICS[m];
     const el = tile(d.label, [d.fmt(hd[m].value), h("small", { text: d.unit })], hd[m].worst_kart);
     if (m === "safety") U.tip(el, U.unsafeText((k) => [hd[k] && hd[k].value]));
     out.append(el);
   }
   return out;
+}
+
+function renderSuiteScorecard(hd, b) {
+  if (!hd || !b) return null;
+  const suites = [
+    ["score_control", "control_sweep", "Control 3x3"],
+    ["score_localization", "localization", "Localization"],
+    ["score_overtake", "overtake", "Overtake"],
+    ["score_slide", "slide", "Slide"],
+    ["score_endurance", "endurance_overtake", "50-Lap + Overtake"],
+    ["score_clips", "clips", "Clips"],
+  ];
+  const active = suites.filter(([, tk]) => b.tests && b.tests[tk]);
+  if (!active.length) return null;
+  const cards = h("div", { class: "scorecard" });
+  if (hd.composite_score && hd.composite_score.value !== null && hd.composite_score.value !== undefined) {
+    cards.append(h("div", { class: "sc-card comp" },
+      h("div", { class: "sc-top" }, h("span", { class: "sc-name", text: "Composite Index" }), h("span", { class: "sc-val", text: U.num(hd.composite_score.value, 1) })),
+      h("div", { class: "sc-bar" }, h("i", { style: `width:${Math.max(2, Math.min(100, hd.composite_score.value))}%` })),
+      h("div", { class: "sc-sub", text: `${active.length} suite${active.length === 1 ? "" : "s"}` })));
+  }
+  for (const [sk, tk, label] of active) {
+    const sv = hd[sk] && hd[sk].value;
+    const t = b.tests && b.tests[tk];
+    cards.append(h("div", { class: "sc-card", "data-suite": tk },
+      h("div", { class: "sc-top" }, h("span", { class: "sc-name", text: label }), h("span", { class: "sc-val", text: sv !== null && sv !== undefined ? U.num(sv, 1) : "–" })),
+      h("div", { class: "sc-bar" }, h("i", { style: `width:${sv ? Math.max(2, Math.min(100, sv)) : 0}%` })),
+      h("div", { class: "sc-sub", text: t ? `${t.ok}/${t.n} ok` + (t.cte_p90 !== null ? ` · CTE ${U.num(t.cte_p90, 2)} m` : "") : "scored" })));
+  }
+  return cards;
+}
+
+function renderGrid3x3(b) {
+  const g3 = b.grid_3x3;
+  if (!g3 || !Object.keys(g3).length) return null;
+  const levels = ["low", "medium", "high"];
+  const tbl = h("table", { class: "grid3x3" });
+  tbl.append(h("thead", {}, h("tr", {},
+    h("th", { text: "Noise \\ Tire" }),
+    ...levels.map((tl) => h("th", { text: "Tire " + tl })))));
+  const tb = h("tbody");
+  for (const nl of levels) {
+    const tr = h("tr", {}, h("th", { text: "Noise " + nl }));
+    for (const tl of levels) {
+      const cell = g3[nl] && g3[nl][tl];
+      if (!cell) { tr.append(h("td", { class: "na", text: "–" })); continue; }
+      const col = cell.cte_p90 !== null ? scaleColor(cell.cte_p90) : { bg: "#fff", fg: "#1A1A1A" };
+      const td = h("td", { class: "gcell" + (cell.ok < cell.n ? " warn" : ""), style: `background:${col.bg};color:${col.fg}` },
+        h("div", { class: "gc-main", text: cell.cte_p90 !== null ? `${U.num(cell.cte_p90, 2)} m` : `${cell.ok}/${cell.n} ok` }),
+        h("div", { class: "gc-sub", text: [cell.best_lap_s !== null ? `${U.num(cell.best_lap_s, 1)} s` : "", cell.slide_pct_p95 !== null ? `slide ${U.num(cell.slide_pct_p95, 0)}%` : "", `${cell.ok}/${cell.n}`].filter(Boolean).join(" · ") }));
+      if (cell.key) {
+        td.dataset.key = cell.key;
+        td.addEventListener("click", () => Viewer.open(cell.key));
+        S.cells[cell.key] = td;
+      }
+      tr.append(td);
+    }
+    tb.append(tr);
+  }
+  tbl.append(tb);
+  return h("div", { class: "g3-wrap" }, h("div", { class: "sec-title", text: "3x3 Steering/Sensor Noise x Tire Config Matrix" }), tbl);
 }
 
 function scaleColor(v) {
@@ -204,12 +272,12 @@ function renderLaps(b, makeCell = lapCell) {
   const karts = [...new Set(conds.flatMap((c) => Object.keys(laps[c])))].sort();
   const lines = U.lineKeys(LINES, conds.flatMap((c) => karts.flatMap((k) => Object.keys(laps[c][k] || {}))));
   const cols = ["auto", "auto"];
-  karts.forEach((k, i) => { if (i) cols.push("12px"); lines.forEach(() => cols.push("44px")); });
+  karts.forEach((k, i) => { if (i) cols.push("12px"); lines.forEach(() => cols.push("minmax(48px, max-content)")); });
   const g = h("div", { class: "lm", style: `grid-template-columns:${cols.join(" ")}` });
   g.append(h("div"), h("div"));
   karts.forEach((k, i) => { if (i) g.append(h("div")); g.append(h("div", { class: "kh", style: `grid-column:span ${lines.length}`, text: U.kart(k) })); });
   g.append(h("div"), h("div"));
-  karts.forEach((k, i) => { if (i) g.append(h("div")); lines.forEach((l) => g.append(h("div", { class: "lh", text: l }))); });
+  karts.forEach((k, i) => { if (i) g.append(h("div")); lines.forEach((l) => g.append(h("div", { class: "lh", title: l, text: U.shortLine(l) }))); });
   let lastGroup = null;
   for (const c of conds) {
     const info = condInfo(c);
@@ -252,10 +320,9 @@ function renderClips(b) {
   const clips = b.clips;
   const classes = CLASSES.filter((c) => clips[c]).concat(Object.keys(clips).filter((c) => !CLASSES.includes(c)));
   const karts = [...new Set(classes.flatMap((c) => Object.keys(clips[c])))].sort();
-  const g = h("div", { class: "cm" });
+  const g = h("div", { class: "cm", style: `grid-template-columns:184px repeat(${Math.max(1, karts.length)}, 128px)` });
   g.append(h("div"));
   karts.forEach((k) => g.append(h("div", { class: "kh", text: U.kart(k) })));
-  const list = h("div");
   for (const c of classes) {
     g.append(h("div", { class: "g", text: U.human(c) }));
     for (const k of karts) {
@@ -295,26 +362,129 @@ function renderClips(b) {
   return wrap;
 }
 
+function renderLocalization(b) {
+  const loc = b.localization || {};
+  const modes = [["gps_imu", "GPS + IMU"], ["slam", "SLAM"], ["3dgs", "3DGS"], ["slam_3dgs", "SLAM + 3DGS"]];
+  const levels = ["low", "medium", "high"];
+  const tb = h("tbody");
+  for (const [mk, mlabel] of modes) {
+    if (!loc[mk]) continue;
+    for (const lv of levels) {
+      const c = loc[mk][lv];
+      if (!c) continue;
+      const tr = h("tr", { "data-key": c.key || "", onclick: () => c.key && Viewer.open(c.key) },
+        h("td", { class: "rec", text: mlabel }),
+        h("td", { text: lv }),
+        h("td", { class: c.status === "ok" ? "" : "no", text: c.status === "ok" ? "ok" : U.human(c.cause || c.status) }),
+        h("td", { class: "num", text: c.loc_p50 !== null && c.loc_p50 !== undefined ? U.num(c.loc_p50, 3) + " m" : "–" }),
+        h("td", { class: "num", text: c.loc_p95 !== null && c.loc_p95 !== undefined ? U.num(c.loc_p95, 3) + " m" : "–" }),
+        h("td", { class: "num", text: c.loc_p99 !== null && c.loc_p99 !== undefined ? U.num(c.loc_p99, 3) + " m" : "–" }),
+        h("td", { class: "num", text: c.loc_rms !== null && c.loc_rms !== undefined ? U.num(c.loc_rms, 3) + " m" : "–" }),
+        h("td", { class: "num", text: c.cte_p90 !== null && c.cte_p90 !== undefined ? U.num(c.cte_p90, 2) + " m" : "–" }),
+        h("td", { class: "num", text: c.best_lap_s !== null && c.best_lap_s !== undefined ? U.num(c.best_lap_s, 1) + " s" : "–" }));
+      if (c.key) S.cells[c.key] = tr;
+      tb.append(tr);
+    }
+  }
+  return h("table", { class: "clist btable" },
+    h("thead", {}, h("tr", {},
+      h("th", { text: "Modality" }), h("th", { text: "Noise" }), h("th", { text: "Status" }),
+      h("th", { class: "num", text: "Loc p50" }), h("th", { class: "num", text: "Loc p95" }),
+      h("th", { class: "num", text: "Loc p99" }), h("th", { class: "num", text: "Loc RMS" }),
+      h("th", { class: "num", text: "CTE p90" }), h("th", { class: "num", text: "Lap Time" }))),
+    tb);
+}
+
+function renderOvertake(b) {
+  const rows = b.overtake || [];
+  const tb = h("tbody");
+  for (const c of rows) {
+    const tr = h("tr", { "data-key": c.key || "", onclick: () => c.key && Viewer.open(c.key) },
+      h("td", { class: "rec", text: U.human(c.test || "overtake") }),
+      h("td", { text: U.human(c.condition) }),
+      h("td", { class: "num", text: `${c.laps_completed}/${c.laps_attempted}` }),
+      h("td", { class: c.overtake_completed ? "better" : "no", text: c.overtake_completed ? "overtook" : c.status !== "ok" ? U.human(c.cause || c.status) : "behind" }),
+      h("td", { class: "num", text: c.overtake_time_s !== null && c.overtake_time_s !== undefined ? U.num(c.overtake_time_s, 1) + " s" : "–" }),
+      h("td", { class: "num", text: c.min_clearance_m !== null && c.min_clearance_m !== undefined ? U.num(c.min_clearance_m, 2) + " m" : "–" }),
+      h("td", { class: "num", text: c.best_lap_s !== null && c.best_lap_s !== undefined ? U.num(c.best_lap_s, 1) + " s" : "–" }),
+      h("td", { class: "num", text: c.cte_p90 !== null && c.cte_p90 !== undefined ? U.num(c.cte_p90, 2) + " m" : "–" }));
+    if (c.key) S.cells[c.key] = tr;
+    tb.append(tr);
+  }
+  return h("table", { class: "clist btable" },
+    h("thead", {}, h("tr", {},
+      h("th", { text: "Test" }), h("th", { text: "Condition" }), h("th", { class: "num", text: "Laps" }),
+      h("th", { text: "Overtake" }), h("th", { class: "num", text: "Pass Time" }),
+      h("th", { class: "num", text: "Min Clear" }), h("th", { class: "num", text: "Best Lap" }),
+      h("th", { class: "num", text: "CTE p90" }))),
+    tb);
+}
+
+function renderSlide(b) {
+  const rows = b.slide || [];
+  const tb = h("tbody");
+  for (const c of rows) {
+    const tr = h("tr", { "data-key": c.key || "", onclick: () => c.key && Viewer.open(c.key) },
+      h("td", { class: "rec", text: U.human(c.condition) }),
+      h("td", { text: c.line }),
+      h("td", { class: "num", text: `${c.laps_completed}/${c.laps_attempted}` }),
+      h("td", { class: c.learned_to_slide ? "better" : "", text: c.learned_to_slide ? `lap ${c.laps_to_slide}` : "no" }),
+      h("td", { class: "num", text: c.slide_pct_p95 !== null && c.slide_pct_p95 !== undefined ? U.num(c.slide_pct_p95, 0) + "%" : "–" }),
+      h("td", { class: "num", text: c.slide_time_pct !== null && c.slide_time_pct !== undefined ? U.num(c.slide_time_pct, 1) + "%" : "–" }),
+      h("td", { class: "num", text: c.lap_1_s !== null && c.lap_1_s !== undefined ? U.num(c.lap_1_s, 1) + " s" : "–" }),
+      h("td", { class: "num", text: c.best_lap_s !== null && c.best_lap_s !== undefined ? U.num(c.best_lap_s, 1) + " s" : "–" }),
+      h("td", { class: "num " + (c.lap_improvement_s > 0.1 ? "better" : ""), text: c.lap_improvement_s !== null && c.lap_improvement_s !== undefined ? (c.lap_improvement_s >= 0 ? "−" : "+") + U.num(Math.abs(c.lap_improvement_s), 2) + " s" : "–" }));
+    if (c.key) S.cells[c.key] = tr;
+    tb.append(tr);
+  }
+  return h("table", { class: "clist btable" },
+    h("thead", {}, h("tr", {},
+      h("th", { text: "Condition" }), h("th", { text: "Line" }), h("th", { class: "num", text: "Laps" }),
+      h("th", { text: "Learned Slide" }), h("th", { class: "num", text: "Slide p95" }),
+      h("th", { class: "num", text: "Slide Time" }), h("th", { class: "num", text: "Lap 1" }),
+      h("th", { class: "num", text: "Best Lap" }), h("th", { class: "num", text: "Delta" }))),
+    tb);
+}
+
 function markCell(key) {
-  for (const el of document.querySelectorAll(".cell.on, .clist tr.on")) el.classList.remove("on");
+  for (const el of document.querySelectorAll(".cell.on, .gcell.on, .clist tr.on")) el.classList.remove("on");
   if (key && S.cells[key] && S.cells[key].isConnected) S.cells[key].classList.add("on");
 }
 
 function renderBreak() {
   const b = S.detail.breakdown;
+  const hd = S.detail.headline;
   const box = document.getElementById("d-break");
   S.cells = {};
-  const hasLaps = Object.keys(b.laps).length > 0, hasClips = Object.keys(b.clips).length > 0;
-  if (!hasLaps && !hasClips) { box.replaceChildren(); return; }
-  if (S.tab === "clips" && !hasClips) S.tab = "laps";
-  if (S.tab === "laps" && !hasLaps) S.tab = "clips";
+  const hasLaps = Object.keys(b.laps || {}).length > 0;
+  const hasLoc = Object.keys(b.localization || {}).length > 0;
+  const hasOvertake = (b.overtake || []).length > 0;
+  const hasSlide = (b.slide || []).length > 0;
+  const hasClips = Object.keys(b.clips || {}).length > 0;
+  const avail = [
+    ["laps", "Laps", hasLaps],
+    ["localization", "Localization", hasLoc],
+    ["overtake", "Overtake", hasOvertake],
+    ["slide", "Slide", hasSlide],
+    ["clips", "Clips", hasClips],
+  ].filter(([, , ok]) => ok);
+  if (!avail.length) { box.replaceChildren(); return; }
+  if (!avail.some(([t]) => t === S.tab)) S.tab = avail[0][0];
+  const sc = renderSuiteScorecard(hd, b);
   const tabs = h("div", { class: "tabs", role: "tablist" });
-  for (const [t, label, ok] of [["laps", "Laps", hasLaps], ["clips", "Clips", hasClips]]) {
-    if (!ok) continue;
+  for (const [t, label] of avail) {
     tabs.append(h("button", { type: "button", role: "tab", class: S.tab === t ? "on" : "", "data-tab": t, text: label,
       onclick: () => { S.tab = t; renderBreak(); } }));
   }
-  box.replaceChildren(tabs, S.tab === "laps" ? renderLaps(b) : renderClips(b));
+  let body;
+  if (S.tab === "laps") {
+    const g3 = renderGrid3x3(b);
+    body = h("div", {}, g3, renderLaps(b));
+  } else if (S.tab === "localization") body = renderLocalization(b);
+  else if (S.tab === "overtake") body = renderOvertake(b);
+  else if (S.tab === "slide") body = renderSlide(b);
+  else body = renderClips(b);
+  box.replaceChildren(sc, tabs, body);
   markCell(Viewer.current);
 }
 
@@ -416,7 +586,7 @@ async function submit() {
   const params = checkParams();
   const body = { recipe_name: F("f-recipe").value, ref: F("f-ref").value, params: params === undefined ? F("f-params").value : params,
     tier: S.tier, where: S.where, user: F("f-user").value, notes: F("f-notes").value, password: F("f-pass").value };
-  const rec = S.meta.recipes.find((x) => x.name === body.recipe_name);
+  const rec = S.meta.recipes.find((x) => x.name === body.recipe_name) || S.meta.recipes.find((x) => x.name.toLowerCase() === body.recipe_name.trim().toLowerCase());
   if (rec && rec.sim) body.sim = rec.sim;   // sim options (CUDA, canaries) come only from a config recipe
   for (const f of ["recipe_name", "ref", "user", "tier", "where", "password"]) fieldError(f, null);
   const r = await U.api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -439,7 +609,8 @@ function wirePanel() {
   F("f-ref").addEventListener("blur", () => { F("f-ref").scrollLeft = F("f-ref").scrollWidth; });
   F("f-recipe").addEventListener("input", () => {
     fieldError("recipe_name", null);
-    const r = S.meta.recipes.find((x) => x.name === F("f-recipe").value);
+    const val = F("f-recipe").value;
+    const r = S.meta.recipes.find((x) => x.name === val) || S.meta.recipes.find((x) => x.name.toLowerCase() === val.trim().toLowerCase());
     if (r && !S.paramsTouched) {
       F("f-params").value = JSON.stringify(r.params, null, 2);
       if (!r.source.ref.startsWith("worktree:") || S.meta.worktrees) F("f-ref").value = r.source.ref;   // a server without the worktrees keeps the git ref

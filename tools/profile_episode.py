@@ -66,20 +66,17 @@ def cgroup_cpu():
         return {}
 
 
-def _publish_clock(self):
+def _publish_clock(self, writing=False):
     ns = self.step * ep.STEP_NS
-    if ARGS.clock == "deadline":
-        last = getattr(self, "_last_clock_ns", -1)
-        due = ns // GRID_NS > last // GRID_NS or ns == self._tick_end_ns
-        if not due:
-            return
-        self._last_clock_ns = ns
     t0 = time.perf_counter()
-    m = self.Clock()
-    m.clock.sec, m.clock.nanosec = ns // 1_000_000_000, ns % 1_000_000_000
-    self.clock_pub.publish(m)
+    due = self.plan.due(ns, writing)
+    if due:
+        m = self.Clock()
+        m.clock.sec, m.clock.nanosec = ns // 1_000_000_000, ns % 1_000_000_000
+        for n in due:
+            self.clock_pubs[n].publish(m)
     P["clock_pub"] += time.perf_counter() - t0
-    N["clock_pub"] += 1
+    N["clock_pub"] += len(due)
     self._last_clock_wall = time.perf_counter()
 
 
@@ -110,7 +107,7 @@ def _service(self):
     N["spin_calls"] += 1
 
 
-def _wait(self, cond, wall_s, what):
+def _wait(self, cond, wall_s, what, idle=None):
     end = time.monotonic() + wall_s
     while not cond():
         if time.monotonic() > end:
@@ -119,13 +116,15 @@ def _wait(self, cond, wall_s, what):
             self.diag = f"t {self.t:.4f} during {what}, stack exit codes {[p.poll() for p in self.stack.procs]}"
             raise ep.EpisodeError("stack_exited")
         self._service()
+        if cond():
+            return
         s0 = time.perf_counter()
-        time.sleep(0.0005)
+        idle() if idle else time.sleep(0.0005)
         P["wait_sleep"] += time.perf_counter() - s0
 
 
-def tick(self):
-    """Copy of _Runtime.tick with each phase timed separately."""
+def _lock_tick(self):
+    """Copy of _Runtime._lock_tick with each phase timed separately."""
     if "t_first" not in STATE:  # startup ends here: stack launched, devices up, timers armed
         STATE["t_first"], STATE["cpu_first"] = time.perf_counter(), sum(c for _, c in proc_table().values())
     self.k_tick += 1
@@ -143,11 +142,12 @@ def tick(self):
         self.plant.step(thr, brk, col)
         self.step += 1
         c = time.perf_counter()
-        tr = self.plant.truth()
+        sensed = self.step % ep.CLOCK_STEPS == 0 or self.step == end
+        tr = self.plant.truth() if sensed else {"rear_axle_speed": self.plant.rear_axle_speed()}
         d = time.perf_counter()
         self.col, self.rate_limited, self.travel_limited = col, self.motor.rate_limited, self.motor.travel_limited
-        if self.step % ep.CLOCK_STEPS == 0 or self.step == end:
-            self._publish_clock()
+        if sensed:
+            self._publish_clock(self.step % ep.CLOCK_STEPS == 0 and self.gps.due(self.t))
         e = time.perf_counter()
         if self.step % ep.CLOCK_STEPS == 0:
             self._sense(tr)
@@ -162,13 +162,14 @@ def tick(self):
     w0 = time.perf_counter()
     sleep0, spin0 = P["wait_sleep"], P["wait_spin"] + P["wait_pty"] + P["wait_nmea"]
     try:
-        self._wait(lambda: ep.tick_ready(self.hb, dl, self.frames_total), ep.LOCKSTEP_WALL_S, "lockstep_timeout")
+        self._wait(lambda: ep.tick_ready(self.hb, dl, self.frames_total), ep.LOCKSTEP_WALL_S, "lockstep_timeout",
+                   lambda: self._idle_tick(dl))
     except ep.EpisodeError:
         self.diag = f"t {self.t:.4f} heartbeat {self.hb} deadline_ns {dl} frames_total {self.frames_total}"
         raise
     w1 = time.perf_counter()
     hb = STATE["hb_wall"] if STATE["hb_wall"] is not None else w1
-    TICKS.append((self.t, w0 - w_start, w1 - w0, hb - self._last_clock_wall, w1 - hb, STATE["phase"]))
+    TICKS.append((self.t, w0 - w_start, w1 - w0, hb - getattr(self, "_last_clock_wall", w0), w1 - hb, STATE["phase"]))
     N["ticks"] += 1
     self.wall["physics"] += w0 - w_start
     self.wall["wait_stack"] += w1 - w0
@@ -214,7 +215,7 @@ def main():
     ap.add_argument("--clock", default="all", choices=("all", "deadline"))
     ap.add_argument("--pyspy-s", type=int, default=0)
     ARGS = ap.parse_args()
-    for k, v in {"tick": tick, "_wait": _wait, "_service": _service, "_on_tick": _on_tick,
+    for k, v in {"_lock_tick": _lock_tick, "_wait": _wait, "_service": _service, "_on_tick": _on_tick,
                  "_publish_clock": _publish_clock, "set_state": set_state, "close": close}.items():
         setattr(ep._Runtime, k, v)
     item = json.load(open(ARGS.batch))[0]

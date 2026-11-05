@@ -27,8 +27,10 @@ if [ "$(git -C "$AK_PATH" config --get remote.origin.mirror || true)" != "true" 
   echo "Warning: $AK_PATH is not a mirror clone, so its local branches stay stale after a fetch"
 fi
 
-echo "Pulling Docker image: $IMAGE_REF"
-docker pull "$IMAGE_REF"
+if [[ "$IMAGE_REF" == */* ]]; then
+  echo "Pulling Docker image: $IMAGE_REF"
+  docker pull "$IMAGE_REF"
+fi
 
 echo "Stopping existing container..."
 docker stop "$NAME" || true

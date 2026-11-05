@@ -12,7 +12,14 @@
     "smoke",
     "dev",
     "large",
-    "lowsteer"
+    "lowsteer",
+    "control_sweep",
+    "localization",
+    "overtake",
+    "slide",
+    "endurance_overtake",
+    "clips",
+    "all"
    ]
   },
   "user": {

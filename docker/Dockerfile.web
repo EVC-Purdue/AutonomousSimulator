@@ -6,6 +6,7 @@ RUN pip install --no-cache-dir flask numpy jsonschema pyyaml huggingface_hub gun
 WORKDIR /app
 COPY docker/Dockerfile docker/Dockerfile.base docker/build_chrono.sh docker/requirements-stack.txt docker/AutoSim.def docker/
 COPY data/noise data/noise
+COPY data/cad data/cad
 COPY harness harness
 COPY configs/tiers configs/tiers
 RUN python -c "from harness import clips, config; clips._fetch(config.load('tiers', 'dev')['clip_revision'])" && rm -rf data/.cache

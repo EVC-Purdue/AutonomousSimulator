@@ -196,12 +196,50 @@ def test_one_tick_yaw_spike_is_not_a_spin():
 
 def test_spin_uses_the_karts_wheelbase():
     from harness import config
-    k2 = M.thresholds({"kart": config.load("karts", "kart2")})
-    assert k2["wheelbase_m"] == 1.15 and M.thresholds({"kart": config.load("karts", "kart1")})["wheelbase_m"] == 1.05
-    log = turn_log(4.3, 21.7, 50.0, 5.0, wb=1.15)  # kinematic on kart 2 plus 50 deg/s
+    k1 = M.thresholds({"kart": config.load("karts", "kart1")})
+    assert k1["wheelbase_m"] == 1.05
+    k2 = dict(k1, wheelbase_m=1.15)
+    log = turn_log(4.3, 21.7, 50.0, 5.0, wb=1.15)  # kinematic on 1.15 m wheelbase plus 50 deg/s
     assert M.first_failure(log, None, k2)[0] is None
     assert M.first_failure(log, None, dict(k2, wheelbase_m=0.9))[0] is None
     assert M.first_failure(log, None, dict(k2, wheelbase_m=1.6))[0] == "spin"
+
+
+def test_a27_multilap_slide_overtake_and_composite_scores():
+    line = circle_line(R=10.0, n=200)
+    log = circle_log(weave_dps=0.0, R=10.0, v=6.0, n=1800, dt=1 / 60)
+    log["vy"] = np.full(1800, -0.6)
+    log["ay"] = np.full(1800, 6.5)
+    log["rear_spin"] = log["vx"] * 1.15
+    log["ekf_err_m"] = np.linspace(0.01, 0.05, 1800)
+    log["opp_clearance_m"] = np.full(1800, 1.4)
+    log["steer_current_a"] = np.full(1800, 2.5)
+    out = M.compute(log, line, None, "lap", 0.0, 0.91)
+    loc = M.loc_stats([{"ekf_err_m": float(v), "phase": 2, "auto": 1} for v in log["ekf_err_m"]])
+    assert out["laps_completed"] >= 2 and len(out["laps_detail"]) == out["laps_completed"]
+    assert out["best_lap_s"] is not None and out["learned_to_slide"] is True and out["laps_to_slide"] == 1
+    assert loc["p50"] is not None and loc["p95"] >= loc["p50"] and loc["p99"] >= loc["p95"]
+    assert out["min_clearance_m"] == pytest.approx(1.4) and out["steer_current_p95_a"] == pytest.approx(2.5)
+    ep = _lap("kart1", **{**out, "laps_attempted": out["laps_completed"],
+                          "loc_p50": loc["p50"], "loc_p95": loc["p95"], "loc_p99": loc["p99"],
+                          "overtake_attempted": True, "overtake_completed": True, "overtake_time_s": 8.0,
+                          "scenario": {"type": "lap", "test": "all"}})
+    agg = M.aggregate([ep])
+    assert agg["lap_time_90"]["value"] == pytest.approx(out["best_lap_s"], abs=0.05)
+    assert agg["lap_time_99"]["value"] == pytest.approx(out["best_lap_s"], abs=0.05)
+    assert agg["lap_time_999"]["value"] == pytest.approx(out["best_lap_s"], abs=0.05)
+    assert agg["overtake_rate"]["value"] == pytest.approx(1.0)
+    assert agg["collision_rate"]["value"] == pytest.approx(0.0)
+    assert agg["min_clearance_m"]["value"] == pytest.approx(1.4)
+    assert M.SUITE_WEIGHTS == {
+        "score_control": 0.25,
+        "score_localization": 0.05,
+        "score_overtake": 0.20,
+        "score_slide": 0.15,
+        "score_endurance": 0.15,
+        "score_clips": 0.20,
+    }
+    assert agg["composite_score"]["value"] is not None and 0 < agg["composite_score"]["value"] <= 100.0
 
 
 def test_container_failure_rules_live_outside_metrics():

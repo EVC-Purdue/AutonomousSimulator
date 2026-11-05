@@ -20,8 +20,11 @@ from simnode.devices.nmea_server import NmeaServer
 from simnode.devices.slcan_pty import SlcanPty
 from simnode.clockplan import ClockPlan, clock_plan
 from simnode.ghost import CLIP_LOOKAHEAD_M, CLIP_LOOKAHEAD_S, CLIP_PREDICT, SPEED_GAIN, SPEED_KV, Ghost
+from simnode.opponent import OpponentKart
 from simnode.sensors.gps import Gps
+from simnode.sensors.gs3d import Gs3d
 from simnode.sensors.imu import Imu, R_MOUNT
+from simnode.sensors.slam import Slam
 from simnode.sensors.wheel import ERPM_PER_MPS, Wheel
 from simnode.stack import DDS_ENV, NODES
 from simnode.steering_motor import SteeringMotor, pct_to_column
@@ -35,6 +38,16 @@ CLOCK_STEPS = 2  # /clock and sensor sampling every 1 ms
 STATUS_1_STEPS, ADCB_STEPS = 20, 40  # 100 Hz and 50 Hz
 CONTROL_ID, ADCB_ID, VESC_STATUS_1_ID = 0x100, 0x101, 0x907
 MOUNT = {"antenna": [0.5, 0.0, 0.8], "baseline_m": 0.61, "baseline_az_deg": 90.0}  # gps.yaml hdg_offset_deg -90
+CAD_MOUNT = {
+    "antenna": [0.6397, -0.1085, 0.6736],
+    "baseline_m": 0.7626,
+    "baseline_az_deg": 90.0,
+    "active_imu": "back",
+    "use_camera": False,
+    "imu_front": {"name": "imu_1", "parent_body": "chassis_front", "pos_m": [0.9476, 0.0033, 0.0782]},
+    "imu_back": {"name": "imu_2", "parent_body": "chassis_rear", "pos_m": [0.1852, -0.0117, 0.0720]},
+    "gps_tower": {"name": "gps_tower", "parent_body": "chassis_waist", "x_m": 0.6397, "y_m": -0.1085, "z_base_m": 0.046, "height_m": 0.6096},
+}
 STEER_LEFT_POSITIVE = True  # pathfinder.py and the MPC model use steering_deg left = positive; Chrono column + is right
 LOCKSTEP_WALL_S = 2.0
 SLOW_TICK_WALL_S = 0.5
@@ -51,7 +64,7 @@ LAP_GHOST_V_CAP = 4.0
 PLAN_HZ = 20  # plan.jsonl.gz rows, the viewer's rate
 LOG_COLS = ("t", "x", "y", "yaw", "vx", "vy", "yaw_rate", "ay", "wheel_l_deg", "wheel_r_deg", "column_deg", "cmd_speed",
             "cmd_steer", "auto", "odom_age_s", "ekf_err_m", "cmd_age_s", "rate_limited", "travel_limited", "s", "cte",
-            "head_err", "phase", "rear_spin", "ekf_along_m", "ekf_cross_m", "ekf_head_deg")
+            "head_err", "phase", "rear_spin", "ekf_along_m", "ekf_cross_m", "ekf_head_deg", "steering_current_a")
 CLOCK_TOPIC = "/sim/clock/"  # bringup_simdev remaps each node's /clock here
 SUBSCRIBERS = {"/system_state": "pathfinder_node", "/manual_commands": "pathfinder_node", "/cmd_drive": "e_comms_node",
                "/sim/imu_raw": "imu_node", **{CLOCK_TOPIC + n: n for n in NODES}}
@@ -148,9 +161,9 @@ def clip_start(clip):
     return s["x"][0], s["y"][0], course - slip, s["v"][0]
 
 
-def antenna_course(tr):
+def antenna_course(tr, mount=None):
     """Course over ground of the antenna, lever arm included, as the receiver's VTG reports it."""
-    a, r = MOUNT["antenna"], tr["yaw_rate"]
+    a, r = (mount or MOUNT)["antenna"], tr["yaw_rate"]
     c, s = math.cos(tr["yaw"]), math.sin(tr["yaw"])
     ve = tr["vx_world"] - r * (s * a[0] + c * a[1])
     vn = tr["vy_world"] + r * (c * a[0] - s * a[1])
@@ -210,15 +223,15 @@ def clip_path(clip, scale=1.0, accel=None):
             "v": np.asarray(s["v"], float) * g}
 
 
-def context_trace(rows, t_ctx, scale, clip, accel=None):
+def context_trace(rows, t_ctx, scale, clip, accel=None, mount=None):
     """Context rows mapped to the clip's recorded time on its series grid: (t, antenna x, antenna y, course, speed / factor)."""
     ctx = [r for r in rows if r["phase"] == 1]
     tau, tc, g = clips.clip_clock(clip, scale, accel)
     t = np.interp([r["t"] - t_ctx for r in ctx], tc, tau)
-    ant = np.array([antenna(r["x"], r["y"], r["yaw"]) for r in ctx])
+    ant = np.array([antenna(r["x"], r["y"], r["yaw"], mount) for r in ctx])
     cv = np.array([antenna_course({"yaw": r["yaw"], "yaw_rate": r["yaw_rate"],
                                    "vx_world": r["vx"] * math.cos(r["yaw"]) - r["vy"] * math.sin(r["yaw"]),
-                                   "vy_world": r["vx"] * math.sin(r["yaw"]) + r["vy"] * math.cos(r["yaw"])}) for r in ctx])
+                                   "vy_world": r["vx"] * math.sin(r["yaw"]) + r["vy"] * math.cos(r["yaw"])}, mount) for r in ctx])
     ts = np.asarray(clip["series"]["t"], float)
     ts = ts[ts <= 1e-9]
     return (ts, np.interp(ts, t, ant[:, 0]), np.interp(ts, t, ant[:, 1]), np.interp(ts, t, np.unwrap(cv[:, 0])),
@@ -239,16 +252,19 @@ def clip_target(clip, scale=1.0):
     return q
 
 
-def antenna(x, y, yaw):
-    a = MOUNT["antenna"]
+def antenna(x, y, yaw, mount=None):
+    a = (mount or MOUNT)["antenna"]
     c, s = math.cos(yaw), math.sin(yaw)
     return x + c * a[0] - s * a[1], y + s * a[0] + c * a[1]
 
 
-def rear_from_antenna(x, y, yaw):
-    a = MOUNT["antenna"]
+def rear_from_antenna(x, y, yaw, mount=None):
+    a = (mount or MOUNT)["antenna"]
     c, s = math.cos(yaw), math.sin(yaw)
     return x - c * a[0] + s * a[1], y - s * a[0] - c * a[1]
+
+
+FAIL_KEYS = ("t", "auto", "vx", "vy", "yaw_rate", "wheel_l_deg", "wheel_r_deg", "odom_age_s", "ekf_err_m", "cmd_age_s")
 
 
 def tick_failure(rows, track, thr):
@@ -256,10 +272,13 @@ def tick_failure(rows, track, thr):
     r = rows[-1]
     if r["auto"] > 0.5 and track is not None and lines.footprint_state(track, r["x"], r["y"], r["yaw"])[1]:
         return "off_track"  # earlier ticks passed, so only the newest footprint can be out; off_track wins a tie
+    if r["auto"] > 0.5 and r.get("opp_clearance_m", 1.0) < 0.0:
+        return "collision"
     i, t = len(rows) - 1, r["t"]
     while i > 0 and rows[i]["t"] > t - thr["spin_hold_s"] + 1e-3:  # back to the first row a full hold old, at any tick rate
         i -= 1
-    cause, tf = failures.first_failure({k: np.asarray([r[k] for r in rows[i:]]) for k in rows[-1]}, None, thr)
+    sl = rows[i:]
+    cause, tf = failures.first_failure({k: np.asarray([row.get(k, 0.0) for row in sl]) for k in FAIL_KEYS}, None, thr)
     return cause if tf == t else None
 
 
@@ -310,8 +329,12 @@ class _Runtime:
         self.mult = tick_mult(resolved["recipe"])
         self.kart, self.f = k, float(k["system_frequency"]) * self.mult  # lockstep tick rate; rows stay at system_frequency
         self.thr = failures.thresholds(resolved, root)
-        self.invert = bool(resolved["recipe"].get("sim", {}).get("invert_steer", False))
-        self.odom_rear = resolved["recipe"].get("sim", {}).get("odom_point", "antenna") == "rear"  # the point the stack's odom reports
+        sim_cfg = resolved["recipe"].get("sim") or {}
+        self.invert = bool(sim_cfg.get("invert_steer", False))
+        self.odom_rear = sim_cfg.get("odom_point", "antenna") == "rear"  # the point the stack's odom reports
+        self.mount = {**MOUNT, **(k.get("mounts") or {})}
+        self.active_imu = str(sim_cfg.get("active_imu", self.mount.get("active_imu", "back"))).lower()
+        self.use_camera = bool(sim_cfg.get("use_camera", self.mount.get("use_camera", (k["sensors"].get("camera") or {}).get("enabled", False))))
         sc = resolved["scenario"]
         self.kind = sc["type"]
         self.clip = clips.load(sc["clip_id"]) if self.kind == "clip" else None
@@ -319,19 +342,34 @@ class _Runtime:
         if sc.get("speed_cap") is not None:  # clips: only the line the stack follows after handoff; the ghost keeps the recorded speeds
             self.line = lines.cap_speed(self.line, sc["speed_cap"])
         self.track = lines.load_track()
-        ss = np.random.SeedSequence(resolved["seed"]).spawn(8)  # gps, imu, wheel, steering, outages, wrong-fix, imu bias, spare
+        ss = np.random.SeedSequence(resolved["seed"]).spawn(12)  # gps, imu, wheel, steering, imu2, slam, gs3d, opp, spare
         rng = [np.random.default_rng(s) for s in ss]
         with open(os.path.join(root, "data", "noise", "gps_fix_chain.json")) as f:
             chain = json.load(f)
         res = np.load(os.path.join(root, "data", "noise", "imu_residuals.npz"))
-        self.gps = Gps(k["sensors"]["gps"], rng[0], chain, MOUNT)
-        self.imu = Imu(k["sensors"]["imu"], rng[1], {n: res[n] for n in res.files}, R_MOUNT)
+        res_dict = {n: res[n] for n in res.files}
+        self.gps = Gps(k["sensors"]["gps"], rng[0], chain, self.mount)
+        imu_back_cfg = k["sensors"]["imu"]
+        imu_front_cfg = k["sensors"].get("imu2", {"enabled": False, "vibration_scale": 0.25, "dlpf_hz": 44})
+        primary_imu_cfg = imu_front_cfg if self.active_imu == "front" else imu_back_cfg
+        secondary_imu_cfg = imu_back_cfg if self.active_imu == "front" else imu_front_cfg
+        self.imu = Imu(primary_imu_cfg, rng[1], res_dict, R_MOUNT)
         self.wheel = Wheel(k["sensors"]["wheel"], rng[2])
         self.motor = SteeringMotor({**k["steering_motor"], "latency_ms": k["actuator"]["steer_latency_ms"]}, rng[3], STEP)
-        self.vesc = Vesc({**k["actuator"], "v_max": 12.0}, STEP)
+        self.imu2 = Imu(secondary_imu_cfg, rng[4], res_dict, R_MOUNT)
+        slam_cfg = dict(k["sensors"].get("slam", {"enabled": False}))
+        gs3d_cfg = dict(k["sensors"].get("gs3d", {"enabled": False}))
+        if "use_camera" in sim_cfg and not self.use_camera and not (k["sensors"].get("slam") or {}).get("enabled") and not (k["sensors"].get("gs3d") or {}).get("enabled"):
+            slam_cfg["enabled"] = False
+            gs3d_cfg["enabled"] = False
+        self.slam = Slam(slam_cfg, rng[5])
+        self.gs3d = Gs3d(gs3d_cfg, rng[6])
+        self.opp = OpponentKart(sc["opponent"], self.line, k, rng[7]) if sc.get("opponent") else None
+        self.vesc = Vesc({**k["actuator"], "v_max": 15.0}, STEP)
         self.travel = k["steering_motor"]["travel_deg"]
         self.calib_target = calibration_target(resolved["recipe"])
         self.calib_gate = first_calib_gate(self.calib_target)
+        self.rl_status = None
         self.plant = self.pty = self.nmea = self.node = self.pub_node = self.stack = self.rclpy = None
         try:
             self._open(resolved, tmp, root)
@@ -350,7 +388,7 @@ class _Runtime:
         from std_msgs.msg import Float32MultiArray, Header, Int16MultiArray, String
         from simnode.plant import Plant
         from simnode.stack import Stack
-        self.Clock, self.F32, self.I16 = Clock, Float32MultiArray, Int16MultiArray
+        self.Clock, self.F32, self.I16, self.Odometry = Clock, Float32MultiArray, Int16MultiArray, Odometry
         k = self.kart
         self.plant = Plant(k, root)
         self.pty, self.nmea = SlcanPty(), NmeaServer(0)
@@ -376,9 +414,15 @@ class _Runtime:
         self.clock_pubs = {n: self.pub_node.create_publisher(Clock, CLOCK_TOPIC + n, 10) for n in NODES}
         self.plan = ClockPlan(*clock_plan(self.f, resolved["recipe"]))
         self.imu_pub = self.pub_node.create_publisher(Int16MultiArray, "sim/imu_raw", 10)
+        self.imu2_pub = self.pub_node.create_publisher(Int16MultiArray, "sim/imu2_raw", 10)
+        self.slam_pub = self.pub_node.create_publisher(Odometry, "slam/odom", 10)
+        self.gs3d_pub = self.pub_node.create_publisher(Odometry, "gs3d/pose", 10)
+        self.obs_pub = self.pub_node.create_publisher(Float32MultiArray, "perception/obstacles", 10)
+        self.steer_cur_pub = self.pub_node.create_publisher(Float32MultiArray, "sim/steering_current", 10)
         self.manual_pub = self.pub_node.create_publisher(Float32MultiArray, "manual_commands", 5)
         self.node.create_subscription(Odometry, "odom", self._on_odom, 10)
         self.node.create_subscription(String, "imu/calibration_status", self._on_imu_status, 10)
+        self.node.create_subscription(String, "rl/status", self._on_rl_status, 10)
         self.node.create_subscription(Header, "pathfinder/tick", self._on_tick, 50)
         self.node.create_subscription(Float32MultiArray, "pathfinder/plan", self._on_plan, 10)
         latched = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
@@ -396,6 +440,12 @@ class _Runtime:
     def _on_imu_status(self, msg):
         try:
             self.calibrated = self.calibrated or json.loads(msg.data).get("state") == "CALIBRATED"
+        except ValueError:
+            pass
+
+    def _on_rl_status(self, msg):
+        try:
+            self.rl_status = json.loads(msg.data)
         except ValueError:
             pass
 
@@ -417,9 +467,12 @@ class _Runtime:
 
     def _publish_clock(self, writing=False):
         ns = self.step * STEP_NS
+        due = self.plan.due(ns, writing)
+        if not due:
+            return
         m = self.Clock()
         m.clock.sec, m.clock.nanosec = ns // 1_000_000_000, ns % 1_000_000_000
-        for n in self.plan.due(ns, writing):
+        for n in due:
             self.clock_pubs[n].publish(m)
 
     def _service(self):
@@ -444,26 +497,29 @@ class _Runtime:
                 self.diag = f"t {self.t:.4f} during {what}, stack exit codes {[p.poll() for p in self.stack.procs]}"
                 raise EpisodeError("stack_exited")
             self._service()
+            if cond():
+                return
             idle() if idle else time.sleep(0.0005)
 
     def _idle_tick(self, dl):
         """Blocks on the beat over ROS, then polls the pty for the frames (select on the pty ran to its timeout on Modal)."""
         if self.hb is not None and self.hb[0] >= dl:
-            time.sleep(0.0005)
+            time.sleep(0.0001)
         else:
-            self.exe.spin_once(timeout_sec=0.005)
+            self.exe.spin_once(timeout_sec=0.002)
 
     def startup(self):
         def ready():
             missing = [k for k, v in (("slcan", self.pty.opened), ("nmea", self.nmea.clients),
                                       ("active_planner", self.planner_up)) if not v]
-            missing += [f"{name} on {topic}" for topic, name in SUBSCRIBERS.items()
-                        if name not in [i.node_name for i in self.node.get_subscriptions_info_by_topic(topic)]]
+            if not missing:
+                missing += [f"{name} on {topic}" for topic, name in SUBSCRIBERS.items()
+                            if name not in [i.node_name for i in self.node.get_subscriptions_info_by_topic(topic)]]
             self.diag = "waiting for " + ", ".join(missing)
             return not missing
-        self._wait(ready, STARTUP_WALL_S, "startup")
+        self._wait(ready, STARTUP_WALL_S, "startup", lambda: time.sleep(0.005))
         settle = time.monotonic() + TIMER_SETTLE_WALL_S
-        self._wait(lambda: time.monotonic() > settle, 2 * TIMER_SETTLE_WALL_S, "startup")
+        self._wait(lambda: time.monotonic() > settle, 2 * TIMER_SETTLE_WALL_S, "startup", lambda: time.sleep(0.005))
         self.set_state("MANUAL")
 
     def set_state(self, name):
@@ -481,7 +537,7 @@ class _Runtime:
 
     def spawn(self, x, y, yaw, v):
         self.plant.spawn(x, y, yaw, v)
-        self.vesc = Vesc({**self.kart["actuator"], "v_max": 12.0}, STEP)
+        self.vesc = Vesc({**self.kart["actuator"], "v_max": 15.0}, STEP)
         self.vesc.ref = self.vesc.target = v
         self.truth = self.plant.truth()
 
@@ -544,21 +600,56 @@ class _Runtime:
             self.diag = f"calibration: no CALIBRATED status by imu sample {self.imu_count}"
         return self.calibrated
 
+    def _odom_msg(self, d):
+        m = self.Odometry()
+        ns = int(round(d["t"] * 1e9))
+        m.header.stamp.sec, m.header.stamp.nanosec = ns // 1_000_000_000, ns % 1_000_000_000
+        m.pose.pose.position.x = float(d["x"])
+        m.pose.pose.position.y = float(d["y"])
+        h = 0.5 * float(d["yaw"])
+        m.pose.pose.orientation.w, m.pose.pose.orientation.z = math.cos(h), math.sin(h)
+        s2 = float(d.get("pos_sigma_m", 0.02)) ** 2
+        m.pose.covariance[0] = m.pose.covariance[7] = s2
+        m.pose.covariance[35] = float(d.get("yaw_sigma_rad", 0.01)) ** 2
+        return m
+
     def _sense(self, tr):
         t = self.t
-        ax, ay = antenna(tr["x"], tr["y"], tr["yaw"])
+        mount = getattr(self, "mount", MOUNT)
+        ax, ay = antenna(tr["x"], tr["y"], tr["yaw"], mount)
         self.ant_hist.append((self.step, ax, ay, tr["x"], tr["y"], tr["yaw"]))
         nmea = self.gps.sample(t, tr["x"], tr["y"], tr["yaw"], tr["vx_world"], tr["vy_world"])
         if nmea:
             self.plan.wrote(self.step * STEP_NS)
         self.nmea.write(nmea)
-        words = self.imu.sample(t, tr["accel"], tr["gyro"], 0.0 if self.braked else abs(tr["vx"]))
+        active_imu = getattr(self, "active_imu", "back")
+        acc1 = tr.get("accel_front" if active_imu == "front" else "accel_back", tr["accel"])
+        acc2 = tr.get("accel_back" if active_imu == "front" else "accel_front", tr["accel"])
+        words = self.imu.sample(t, acc1, tr["gyro"], 0.0 if self.braked else abs(tr["vx"]))
         if words is not None:
             self.imu_pub.publish(self.I16(data=words))
             self.imu_count += 1
+        imu2 = getattr(self, "imu2", None)
+        if imu2 is not None:
+            w2 = imu2.sample(t, acc2, tr["gyro"], 0.0 if self.braked else abs(tr["vx"]))
+            if w2 is not None and getattr(self, "imu2_pub", None) is not None:
+                self.imu2_pub.publish(self.I16(data=w2))
+        slam = getattr(self, "slam", None)
+        if slam is not None:
+            for sm in slam.sample(t, tr["x"], tr["y"], tr["yaw"], tr["vx"], tr["vy"], tr["yaw_rate"]):
+                if getattr(self, "slam_pub", None) is not None:
+                    self.slam_pub.publish(self._odom_msg(sm))
+        gs3d = getattr(self, "gs3d", None)
+        if gs3d is not None:
+            for gm in gs3d.sample(t, tr["x"], tr["y"], tr["yaw"], tr["vx"], tr["vy"]):
+                if getattr(self, "gs3d_pub", None) is not None:
+                    self.gs3d_pub.publish(self._odom_msg(gm))
         if self.step % STATUS_1_STEPS == 0:
             erpm = 0 if self.braked else self.wheel.erpm(tr["rear_axle_speed"])
             self.pty.send_ext(VESC_STATUS_1_ID, encode_status_1(erpm))
+            if getattr(self, "steer_cur_pub", None) is not None and getattr(self, "motor", None) is not None:
+                cur_a = self.motor.current_a(tr.get("aligning_torque_nm", 0.0))
+                self.steer_cur_pub.publish(self.F32(data=[float(cur_a), float(tr.get("aligning_torque_nm", 0.0))]))
         if self.step % ADCB_STEPS == 0:
             self.pty.send_std(ADCB_ID, encode_adcb(self.state))
 
@@ -569,7 +660,26 @@ class _Runtime:
         st, ox, oy, oyaw = self.odom
         i = len(self.ant_hist) - 1 - (self.ant_hist[-1][0] - int(round(st / STEP))) // CLOCK_STEPS
         _, ax, ay, rx, ry, yaw = self.ant_hist[min(max(i, 0), len(self.ant_hist) - 1)]
-        ex, ey = (ox - rx, oy - ry) if self.odom_rear else (ox - ax, oy - ay)
+        tx, ty = (rx, ry) if self.odom_rear else (ax, ay)
+        ex, ey = ox - tx, oy - ty
+        # Fuse active SLAM / 3DGS measurements via inverse-variance weighting when enabled
+        slam, gs3d = getattr(self, "slam", None), getattr(self, "gs3d", None)
+        if (slam and slam.last) or (gs3d and gs3d.last):
+            w_odom = 1.0 / max(0.05 ** 2, ex * ex + ey * ey)
+            wx, wy, w_sum = w_odom * ex, w_odom * ey, w_odom
+            if slam and slam.last:
+                sm = slam.last
+                w_s = 1.0 / max(sm["pos_sigma_m"] ** 2, 1e-5)
+                wx += w_s * (sm["x"] - rx)
+                wy += w_s * (sm["y"] - ry)
+                w_sum += w_s
+            if gs3d and gs3d.last and gs3d.last.get("confidence", 0.0) >= 0.5:
+                gm = gs3d.last
+                w_g = 1.0 / max(gm["pos_sigma_m"] ** 2, 1e-5)
+                wx += w_g * (gm["x"] - rx)
+                wy += w_g * (gm["y"] - ry)
+                w_sum += w_g
+            ex, ey = wx / w_sum, wy / w_sum
         c, s = math.cos(yaw), math.sin(yaw)
         return math.hypot(ex, ey), c * ex + s * ey, -s * ex + c * ey, math.degrees(math.remainder(oyaw - yaw, 2 * math.pi))
 
@@ -578,24 +688,33 @@ class _Runtime:
         s, cte, psi = lines.frenet(self.line, tr["x"], tr["y"])
         he = math.degrees(math.remainder(tr["yaw"] - float(psi[0]), 2 * math.pi))
         err, along, cross, ehead = self.ekf_err()
-        return {"t": t, "x": tr["x"], "y": tr["y"], "yaw": tr["yaw"], "vx": tr["vx"], "vy": tr["vy"],
-                "yaw_rate": tr["yaw_rate"], "ay": tr["ay"], "wheel_l_deg": tr["wheel_l_deg"],
-                "wheel_r_deg": tr["wheel_r_deg"], "column_deg": self.col, "cmd_speed": self.cmd_speed,
-                "cmd_steer": self.cmd_steer, "auto": int(phase == 2),
-                "odom_age_s": t - (self.odom[0] if self.odom else 0.0), "ekf_err_m": err,
-                "cmd_age_s": t - self.cmd_t, "rate_limited": int(self.rate_limited),
-                "travel_limited": int(self.travel_limited), "s": float(s[0]), "cte": float(cte[0]), "head_err": he,
-                "phase": phase, "rear_spin": tr["rear_axle_speed"],  # rear wheel spin x rolling radius (m/s)
-                "ekf_along_m": along, "ekf_cross_m": cross, "ekf_head_deg": ehead}
+        motor = getattr(self, "motor", None)
+        cur_a = motor.current_a(tr.get("aligning_torque_nm", 0.0)) if hasattr(motor, "current_a") else 0.0
+        r = {"t": t, "x": tr["x"], "y": tr["y"], "yaw": tr["yaw"], "vx": tr["vx"], "vy": tr["vy"],
+             "yaw_rate": tr["yaw_rate"], "ay": tr["ay"], "wheel_l_deg": tr["wheel_l_deg"],
+             "wheel_r_deg": tr["wheel_r_deg"], "column_deg": self.col, "cmd_speed": self.cmd_speed,
+             "cmd_steer": self.cmd_steer, "auto": int(phase == 2),
+             "odom_age_s": t - (self.odom[0] if self.odom else 0.0), "ekf_err_m": err,
+             "cmd_age_s": t - self.cmd_t, "rate_limited": int(self.rate_limited),
+             "travel_limited": int(self.travel_limited), "s": float(s[0]), "cte": float(cte[0]), "head_err": he,
+             "phase": phase, "rear_spin": tr["rear_axle_speed"],  # rear wheel spin x rolling radius (m/s)
+             "ekf_along_m": along, "ekf_cross_m": cross, "ekf_head_deg": ehead,
+             "steering_current_a": cur_a}
+        rl = getattr(self, "rl_status", None)
+        if isinstance(rl, dict):
+            for key in ("wm_loss", "actor_loss", "critic_loss", "rl_alpha", "shield_interventions"):
+                if key in rl and rl[key] is not None:
+                    r[key] = float(rl[key])
+        return r
 
     def ghost_truth(self):
         tr = self.truth
-        x, y = antenna(tr["x"], tr["y"], tr["yaw"])
+        x, y = antenna(tr["x"], tr["y"], tr["yaw"], getattr(self, "mount", MOUNT))
         return {"x": x, "y": y, "yaw": tr["yaw"], "v": math.hypot(tr["vx"], tr["vy"]), "yaw_rate": tr["yaw_rate"]}
 
     def course_truth(self):
         g = self.ghost_truth()
-        g["yaw"], g["v"] = antenna_course(self.truth)
+        g["yaw"], g["v"] = antenna_course(self.truth, getattr(self, "mount", MOUNT))
         return g
 
     def close(self):
@@ -624,7 +743,7 @@ def _run(rt, rows, out, plans):
     else:
         pose = (float(rt.line.x[0]), float(rt.line.y[0]), float(rt.line.psi[0]))
         path = lap_path(rt.line)
-    rx, ry = rear_from_antenna(*pose)
+    rx, ry = rear_from_antenna(*pose, getattr(rt, "mount", MOUNT))
     wheel_per_column = rt.plant.steer_gain() if rt.kind == "clip" else None
     if rt.kind == "clip":  # context at a speed the kart's steering can follow, time stretched to match
         scale = clip_speed_scale(rt.clip, rt.plant.wheelbase, rt.kart["steering_motor"]["rate_dps"] * wheel_per_column)
@@ -659,22 +778,35 @@ def _run(rt, rows, out, plans):
         rows.append(rt.row(1))
     out["handoff_t"] = rt.t
     if rt.kind == "clip":
-        sim = failures.context_features(*context_trace(rows, t_ctx, scale, rt.clip, CTX_RAMP_MPS2), rt.line)
+        sim = failures.context_features(*context_trace(rows, t_ctx, scale, rt.clip, CTX_RAMP_MPS2, getattr(rt, "mount", MOUNT)), rt.line)
         out["context_valid"] = (failures.context_valid(rt.course_truth(), clip_target(rt.clip), rt.thr)
                                 and failures.representative(rt.clip["cls"], sim, clip_features(rt.clip, rt.line), rt.thr))
     rt.set_state("AUTONOMOUS")
     laps = sc.get("laps", 0)
     cap = rt.t + 2.0 * lines.lap_time(rt.line) * laps if rt.kind == "lap" else end
     s_prev, progress = rows[-1]["s"], 0.0
+    dt_row = 1.0 / float(rt.kart["system_frequency"])
+    opp = getattr(rt, "opp", None)
     while True:
         rt.tick()
         row = rt.row(2)
+        progress += wrap_ds(row["s"] - s_prev, rt.line.length)
+        s_prev = row["s"]
+        cur_lap = int(max(progress, 0.0) // rt.line.length) if rt.kind == "lap" else 0
+        out["laps_completed"] = cur_lap
+        if opp is not None:
+            opp_state = opp.step(row["t"], dt_row, row["x"], row["y"], row["yaw"], row["s"], cur_lap, True)
+            if opp_state is not None:
+                row.update(opp_state)
+                obs = opp.perception_payload(row["x"], row["y"], row["yaw"], row["vx"])
+                if obs and getattr(rt, "obs_pub", None) is not None:
+                    rt.obs_pub.publish(rt.F32(data=obs))
+            out["overtake_completed"] = opp.overtake_completed
+            out["overtake_time_s"] = opp.overtake_time_s
+            out["min_clearance_m"] = opp.min_clearance_m
         rows.append(row)
         if record_plan(plans, row["t"], rt.intent):
             rt.intent = None
-        progress += wrap_ds(row["s"] - s_prev, rt.line.length)
-        s_prev = row["s"]
-        out["laps_completed"] = int(max(progress, 0.0) // rt.line.length) if rt.kind == "lap" else 0
         cause = tick_failure(rows, rt.track, rt.thr)
         if cause is not None:
             return "failed", cause
