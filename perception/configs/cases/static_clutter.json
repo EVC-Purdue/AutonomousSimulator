@@ -1,0 +1,28 @@
+{
+ "name": "static_clutter",
+ "mode": "static",
+ "description": "Heavy background clutter: tyre walls, barriers, cones, cars, trees, fences",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_afternoon",
+  "mall_lot",
+  "street_overcast",
+  "driving_school"
+ ],
+ "grid": {
+  "range_m": [
+   6,
+   10,
+   15,
+   20,
+   28
+  ],
+  "clutter": [
+   "heavy"
+  ]
+ }
+}

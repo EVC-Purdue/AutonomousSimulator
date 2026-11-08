@@ -1,0 +1,81 @@
+{
+ "notes": "Poly Haven CC0 HDRIs and textures; the HDRI gives sky, distant background and lighting, the ground is a local textured disc",
+ "envs": {
+  "raceway_afternoon": {
+   "hdri": "zwartkops_straight_afternoon",
+   "ground": "asphalt_track",
+   "grass": "sparse_grass",
+   "exposure": 0.0
+  },
+  "raceway_morning": {
+   "hdri": "zwartkops_curve_morning",
+   "ground": "asphalt_track",
+   "grass": "sparse_grass",
+   "exposure": 0.0
+  },
+  "raceway_sunset": {
+   "hdri": "zwartkops_start_sunset",
+   "ground": "asphalt_track",
+   "grass": "sparse_grass",
+   "exposure": 0.0
+  },
+  "skidpan": {
+   "hdri": "skidpan",
+   "ground": "asphalt_02",
+   "grass": "grass_path_2",
+   "exposure": 0.0
+  },
+  "driving_school": {
+   "hdri": "driving_school",
+   "ground": "asphalt_pit_lane",
+   "grass": "grass_path_2",
+   "exposure": 0.0
+  },
+  "mall_lot": {
+   "hdri": "mall_parking_lot",
+   "ground": "asphalt_02",
+   "grass": "leafy_grass",
+   "exposure": 0.0
+  },
+  "suburban_lot": {
+   "hdri": "suburban_parking_area",
+   "ground": "aerial_asphalt_01",
+   "grass": "leafy_grass",
+   "exposure": 0.0
+  },
+  "stadium_overcast": {
+   "hdri": "stadium_exterior",
+   "ground": "asphalt_pit_lane",
+   "grass": "sparse_grass",
+   "exposure": 0.0
+  },
+  "street_overcast": {
+   "hdri": "urban_street_01",
+   "ground": "asphalt_02",
+   "grass": "grass_path_2",
+   "exposure": 0.0
+  },
+  "noon_harsh": {
+   "hdri": "wide_street_01",
+   "ground": "concrete_floor",
+   "grass": "sparse_grass",
+   "exposure": 0.0
+  },
+  "rural_road": {
+   "hdri": "rural_asphalt_road",
+   "ground": "asphalt_track",
+   "grass": "leafy_grass",
+   "exposure": 0.0
+  }
+ },
+ "props": {
+  "tyre": "old_tyre",
+  "barrier": "concrete_road_barrier",
+  "car": "covered_car",
+  "fence": "modular_chainlink_fence",
+  "lamp": "street_lamp_01",
+  "bin": "metal_trash_can",
+  "table": "wooden_picnic_table",
+  "hydrant": "fire_hydrant"
+ }
+}

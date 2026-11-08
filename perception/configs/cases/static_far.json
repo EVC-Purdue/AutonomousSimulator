@@ -1,0 +1,26 @@
+{
+ "name": "static_far",
+ "mode": "static",
+ "description": "One target in range plus three karts at 30-60 m",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_afternoon",
+  "skidpan",
+  "stadium_overcast",
+  "rural_road"
+ ],
+ "grid": {
+  "range_m": [
+   8,
+   15
+  ],
+  "distractors": [
+   3
+  ]
+ },
+ "repeats": 2
+}

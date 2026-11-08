@@ -1,0 +1,44 @@
+{
+ "name": "track_overtake",
+ "mode": "track",
+ "description": "Opponent passes from beside-left into the field of view and pulls away",
+ "seed": 0,
+ "fps": 15,
+ "noise": "nominal",
+ "track": "purdue",
+ "pitch_sigma_deg": 0.4,
+ "roll_deg_per_g": 1.5,
+ "sequences": [
+  {
+   "name": "pass_left",
+   "env": "raceway_morning",
+   "duration_s": 8,
+   "start_s": 40,
+   "ego_speed_mps": 6,
+   "gap_m": [
+    [
+     0,
+     -1.5
+    ],
+    [
+     8,
+     14
+    ]
+   ],
+   "opp_d": [
+    [
+     0,
+     1.8
+    ],
+    [
+     4,
+     1.6
+    ],
+    [
+     8,
+     0.0
+    ]
+   ]
+  }
+ ]
+}

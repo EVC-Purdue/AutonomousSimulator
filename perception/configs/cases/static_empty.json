@@ -1,0 +1,22 @@
+{
+ "name": "static_empty",
+ "mode": "static",
+ "description": "No kart in the scene, heavy clutter: false positives only",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_afternoon",
+  "mall_lot",
+  "street_overcast",
+  "skidpan"
+ ],
+ "grid": {
+  "clutter": [
+   "heavy"
+  ]
+ },
+ "repeats": 3
+}

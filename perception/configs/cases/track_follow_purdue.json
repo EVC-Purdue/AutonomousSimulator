@@ -1,0 +1,85 @@
+{
+ "name": "track_follow_purdue",
+ "mode": "track",
+ "description": "Follow an opponent at 4-25 m around the Purdue track",
+ "seed": 0,
+ "fps": 15,
+ "noise": "nominal",
+ "track": "purdue",
+ "pitch_sigma_deg": 0.4,
+ "roll_deg_per_g": 1.5,
+ "sequences": [
+  {
+   "name": "gap_sweep",
+   "env": "raceway_afternoon",
+   "duration_s": 12,
+   "start_s": 0,
+   "ego_speed_mps": 7,
+   "gap_m": [
+    [
+     0,
+     4
+    ],
+    [
+     6,
+     25
+    ],
+    [
+     12,
+     6
+    ]
+   ],
+   "opp_d": [
+    [
+     0,
+     0
+    ],
+    [
+     5,
+     0.8
+    ],
+    [
+     12,
+     -0.5
+    ]
+   ]
+  },
+  {
+   "name": "corners",
+   "env": "raceway_sunset",
+   "duration_s": 10,
+   "start_s": 120,
+   "ego_speed_mps": 6,
+   "gap_m": [
+    [
+     0,
+     8
+    ],
+    [
+     10,
+     12
+    ]
+   ],
+   "opp_d": [
+    [
+     0,
+     -0.6
+    ],
+    [
+     10,
+     0.6
+    ]
+   ],
+   "ego_d": [
+    [
+     0,
+     0.3
+    ],
+    [
+     10,
+     -0.3
+    ]
+   ]
+  }
+ ]
+}

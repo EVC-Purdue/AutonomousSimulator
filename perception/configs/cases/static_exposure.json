@@ -1,0 +1,24 @@
+{
+ "name": "static_exposure",
+ "mode": "static",
+ "description": "Exposure 1.5 EV under and 1 EV over",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_sunset",
+  "street_overcast"
+ ],
+ "grid": {
+  "range_m": [
+   8,
+   16
+  ],
+  "exposure_ev": [
+   -1.5,
+   1.0
+  ]
+ }
+}

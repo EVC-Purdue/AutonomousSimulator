@@ -1,0 +1,31 @@
+{
+ "name": "static_bearing",
+ "mode": "static",
+ "description": "Opponent across the field of view at 6, 12 and 20 m",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_morning",
+  "suburban_lot"
+ ],
+ "grid": {
+  "range_m": [
+   6,
+   12,
+   20
+  ],
+  "bearing_deg": [
+   -35,
+   -25,
+   -15,
+   -5,
+   5,
+   15,
+   25,
+   35
+  ]
+ }
+}

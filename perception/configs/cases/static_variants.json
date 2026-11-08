@@ -1,0 +1,30 @@
+{
+ "name": "static_variants",
+ "mode": "static",
+ "description": "Opponent designs of different heights: tower, bare frame, bodywork, tall mast, large",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_morning",
+  "mall_lot"
+ ],
+ "grid": {
+  "range_m": [
+   5,
+   10,
+   15,
+   20,
+   30
+  ],
+  "variant": [
+   "tower",
+   "bare",
+   "body",
+   "tall_mast",
+   "large"
+  ]
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "name": "kart-detection-standin",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "elan/kart-detection"
+ },
+ "params": {
+  "kart_detector_node": {
+   "camera.width_px": 360,
+   "camera.height_px": 270,
+   "camera.fx": 257.07,
+   "camera.fy": 257.07,
+   "camera.cx": 180.0,
+   "camera.cy": 135.0,
+   "camera.height_m": 0.6276,
+   "camera.pitch_deg": 1.5,
+   "camera.yaw_deg": 0.0,
+   "camera.mount_x_m": 0.6717,
+   "camera.mount_y_m": -0.1085
+  }
+ },
+ "model": "data/perception/models/standin_synth_yolo11n_192x320.onnx",
+ "notes": "Same as kart-detection with a stand-in detector until the team's ONNX is available: yolo11n trained by perception/train_standin.py on 400 renders with other HDRIs and seed than the cases. Trained on renders only, so it is optimistic here and says nothing about real images"
+}

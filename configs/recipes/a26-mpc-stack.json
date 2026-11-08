@@ -6,15 +6,16 @@
  },
  "params": {
   "pathfinder_node": {
-   "mpc.num_samples": 32768
+   "planner": "ilqr",
+   "mpc.adaptive_gain.enabled": true
   }
  },
  "sim": {
   "cuda": true,
   "active_imu": "back",
   "use_camera": false,
-  "controller_type": "mppi",
+  "controller_type": "mpc",
   "baseline": true
  },
- "notes": "MPC/MPPI on the CUDA kernel, 32768 samples (back IMU imu_2 on chassis_rear, no camera)"
+ "notes": "A26 MPC baseline stack with tuned iLQR solver and adaptive steering gain (back IMU imu_2 on chassis_rear, no camera)"
 }

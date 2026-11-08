@@ -1,0 +1,5 @@
+# Camera ranging tests: evc-sim:dev plus what kart_detector_node needs; a separate image so the episode engine hash is unchanged
+FROM evc-sim:dev
+RUN apt-get update && apt-get install -y --no-install-recommends ros-humble-cv-bridge && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --no-cache-dir onnxruntime==1.23.2
+COPY perception/drive.py perception/camera_noise.py /opt/sim/perception/

@@ -1,0 +1,17 @@
+{
+ "name": "tower_cam",
+ "notes": "Forward camera. Mount position from data/cad/sensor_mounts.json (kart frame: x forward from the rear axle, y left, z up from the ground). Resolution, aspect and pitch from real frames (AutonomousKart camera_data, 640x480, horizon near row 228 of 480, so 1.5 deg down, not the CAD's 14). The lens model is unrecorded: hfov 70 deg is an estimate",
+ "mount_xyz_m": [
+  0.6717,
+  -0.1085,
+  0.6276
+ ],
+ "pitch_down_deg": 1.5,
+ "yaw_deg": 0.0,
+ "hfov_deg": 70.0,
+ "render_px": [
+  640,
+  480
+ ],
+ "publish_width_px": 360
+}

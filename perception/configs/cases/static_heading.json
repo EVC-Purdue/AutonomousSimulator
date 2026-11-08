@@ -1,0 +1,29 @@
+{
+ "name": "static_heading",
+ "mode": "static",
+ "description": "Opponent yaw from rear view to head-on at 6 and 14 m",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_afternoon",
+  "driving_school"
+ ],
+ "grid": {
+  "range_m": [
+   6,
+   14
+  ],
+  "heading_deg": [
+   0,
+   30,
+   60,
+   90,
+   120,
+   150,
+   180
+  ]
+ }
+}

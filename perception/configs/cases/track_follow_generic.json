@@ -1,0 +1,62 @@
+{
+ "name": "track_follow_generic",
+ "mode": "track",
+ "description": "Follow an opponent at 4-25 m on a generated track that is not ours",
+ "seed": 0,
+ "fps": 15,
+ "noise": "nominal",
+ "track": "generic",
+ "pitch_sigma_deg": 0.4,
+ "roll_deg_per_g": 1.5,
+ "sequences": [
+  {
+   "name": "gap_sweep",
+   "env": "skidpan",
+   "duration_s": 12,
+   "start_s": 0,
+   "ego_speed_mps": 7,
+   "gap_m": [
+    [
+     0,
+     5
+    ],
+    [
+     6,
+     22
+    ],
+    [
+     12,
+     7
+    ]
+   ],
+   "opp_d": [
+    [
+     0,
+     0.5
+    ],
+    [
+     12,
+     -0.5
+    ]
+   ]
+  },
+  {
+   "name": "overcast",
+   "env": "stadium_overcast",
+   "duration_s": 8,
+   "start_s": 150,
+   "ego_speed_mps": 8,
+   "gap_m": [
+    [
+     0,
+     10
+    ],
+    [
+     8,
+     15
+    ]
+   ],
+   "variant": "body"
+  }
+ ]
+}

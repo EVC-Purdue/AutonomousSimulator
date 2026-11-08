@@ -1,0 +1,32 @@
+{
+ "name": "static_calibration",
+ "mode": "static",
+ "description": "Physical camera pitch and height off the configured calibration",
+ "seed": 0,
+ "frames_per_scene": 8,
+ "fps": 15,
+ "noise": "nominal",
+ "clutter": "light",
+ "envs": [
+  "raceway_afternoon"
+ ],
+ "grid": {
+  "range_m": [
+   6,
+   12,
+   20
+  ],
+  "cam_pitch_err_deg": [
+   -2,
+   -1,
+   0,
+   1,
+   2
+  ],
+  "cam_height_err_m": [
+   -0.1,
+   0.0,
+   0.1
+  ]
+ }
+}

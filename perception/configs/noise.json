@@ -1,0 +1,8 @@
+{
+ "notes": "Camera signal model applied after the render, seeded per frame. Electrons-equivalent shot noise at full scale, read noise in 8-bit counts",
+ "levels": {
+  "clean": {"full_well": 0, "read_sigma": 0.0, "jpeg_quality": 0, "exposure_sigma_ev": 0.0, "blur_px_per_radps": 0.0},
+  "nominal": {"full_well": 4000, "read_sigma": 1.5, "jpeg_quality": 85, "exposure_sigma_ev": 0.15, "blur_px_per_radps": 6.0},
+  "poor": {"full_well": 1200, "read_sigma": 4.0, "jpeg_quality": 60, "exposure_sigma_ev": 0.4, "blur_px_per_radps": 12.0}
+ }
+}
