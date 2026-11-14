@@ -712,6 +712,34 @@ def test_opponent_kart_clearance_and_overtake_and_collision():
     assert failures.first_failure(log, None, failures.DEFAULT_THR) == ("collision", 1.0)
 
 
+def test_opponent_sensor_publishes_stack_wire_format_with_camera_limits():
+    import types
+    from simnode.opponent import OpponentSensor
+    line = lines.load_line("center")
+    cfg = config.load("karts", "kart1")["sensors"]["opponents"]
+    sen = OpponentSensor({**cfg, "p_detect": 1.0}, line, np.random.default_rng(0))
+    ego = (float(line.x[0]), float(line.y[0]), float(line.psi[0]))
+    opp = types.SimpleNamespace(x=0.0, y=0.0, yaw=ego[2], vx=5.0, active=False)
+    assert sen.step(0.0, *ego, opp) == [0.0]   # not yet triggered
+    opp.x, opp.y, opp.active = *_line_xy(line, 10.0), True
+    msgs = [sen.step(i / 60, *ego, opp) for i in range(1, 30)]
+    m = next(m for m in msgs if m and m[0] == 1.0)
+    n, oid, s, d, s_dot, d_dot, stamp, sig_s, sig_d = m
+    assert len(m) == 9 and 10.5 < s < 14.0 and abs(d) < 1.0 and s_dot == pytest.approx(5.0, abs=2.0)
+    assert 0.0 < sig_s < 3.0 and sig_d > 0.0
+    t_pub = (1 + msgs.index(m)) / 60
+    assert t_pub - stamp == pytest.approx(cfg["latency_ms"] / 1e3, abs=1 / 60 + 1e-9)
+    assert sum(m is not None for m in msgs) == pytest.approx(29 / 60 * cfg["rate_hz"], abs=2)
+    opp.x, opp.y = ego[0] - 5.0 * np.cos(ego[2]), ego[1] - 5.0 * np.sin(ego[2])   # behind the camera
+    out = [sen.step(0.5 + i / 60, *ego, opp) for i in range(60)]
+    out = [o for o in out if o is not None]
+    assert out[-1] == [0.0] and out[0][0] == 1.0   # coasts, then drops
+
+
+def _line_xy(line, s):
+    return float(np.interp(s, line.s, line.x)), float(np.interp(s, line.s, line.y))
+
+
 def test_steering_motor_current_and_ekf_fusion():
     from simnode.steering_motor import SteeringMotor
     k = config.load("karts", "kart1")

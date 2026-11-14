@@ -80,14 +80,14 @@ def model(name):
 def manifest(scene_list):
     """Local paths of every asset the scenes use; downloads what is missing."""
     envs = scenes.load("envs")
-    used_envs = {s["env"]["name"] for s in scene_list}
     used_props = {p["kind"] for s in scene_list for p in s["props"]}
     out = {"hdri": {}, "tex": {}, "models": {}}
-    for e in sorted(used_envs):
-        spec = envs["envs"][e]
-        out["hdri"][spec["hdri"]] = hdri(spec["hdri"])
+    for spec in [s["env"] for s in scene_list]:   # the scene's env, which may override the named one's textures
+        if spec["hdri"] not in out["hdri"]:
+            out["hdri"][spec["hdri"]] = hdri(spec["hdri"])
         for t in (spec["ground"], spec["grass"]):
-            out["tex"][t] = texture(t)
+            if t not in out["tex"]:
+                out["tex"][t] = texture(t)
     for kind in sorted(used_props):
         name = envs["props"].get({"tyre_wall": "tyre", "tyre_stack": "tyre"}.get(kind, kind))
         if name:

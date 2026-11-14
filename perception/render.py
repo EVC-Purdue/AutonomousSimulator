@@ -30,8 +30,8 @@ def _mat(name, color=(0.5, 0.5, 0.5), metallic=0.0, rough=0.5, coat=0.0):
     return m
 
 
-def _tex_mat(name, tex, tile_m, tex2=None, tile2=None, lot_r=None):
-    """PBR ground from Poly Haven maps tiled in world metres; with tex2 and lot_r, tex inside lot_r and tex2 outside."""
+def _tex_mat(name, tex, tile_m, tex2=None, tile2=None, lot_r=None, tint=None):
+    """PBR ground from Poly Haven maps tiled in world metres; with tex2 and lot_r, tex inside lot_r and tex2 outside; tint recolours."""
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     nt = m.node_tree
@@ -85,6 +85,15 @@ def _tex_mat(name, tex, tile_m, tex2=None, tile2=None, lot_r=None):
             return n.outputs[2]
 
         col, rough, nor = mix(a["diff"], b["diff"], 0), mix(a["rough"], b["rough"], 0), mix(a["nor"], b["nor"], 0)
+    if tint is not None:   # brightness times a colour: keeps the texture's detail, sets its hue
+        bw = nt.nodes.new("ShaderNodeRGBToBW")
+        nt.links.new(col, bw.inputs["Color"])
+        mul = nt.nodes.new("ShaderNodeMix")
+        mul.data_type, mul.blend_type = "RGBA", "MULTIPLY"
+        mul.inputs["Factor"].default_value = 1.0
+        nt.links.new(bw.outputs["Val"], mul.inputs[6])
+        mul.inputs[7].default_value = (*tint, 1.0)
+        col = mul.outputs[2]
     nt.links.new(col, bsdf.inputs["Base Color"])
     nt.links.new(rough, bsdf.inputs["Roughness"])
     nm = nt.nodes.new("ShaderNodeNormalMap")
@@ -351,8 +360,9 @@ class Renderer:
 
     # ground, track, world
 
-    def ground(self, env, track):
-        key = (track, env["ground"], env["grass"])
+    def ground(self, env, track, kerbs=True):
+        tint = env.get("grass_tint")
+        key = (track, env["ground"], env["grass"], tuple(tint or ()), kerbs)
         for k, obs in self.grounds.items():
             for o in obs:
                 o.hide_render = k != key
@@ -368,7 +378,7 @@ class Renderer:
         if track is None:
             g.data.materials.append(_tex_mat(f"lot_{env['ground']}", tex[env["ground"]], 4.0, tex[env["grass"]], 3.0, LOT_R))
         else:
-            g.data.materials.append(_tex_mat(f"grass_{env['grass']}", tex[env["grass"]], 3.0))
+            g.data.materials.append(_tex_mat(f"grass_{env['grass']}_{tint}", tex[env["grass"]], 3.0, tint=tint))
             geom = self.job["geoms"][track]
             cu = bpy.data.curves.new("track", "CURVE")
             cu.dimensions = "2D"
@@ -389,7 +399,7 @@ class Renderer:
             tm.materials.append(_tex_mat(f"asphalt_{env['ground']}", tex[env["ground"]], 4.0))
             bpy.context.scene.collection.objects.link(t)
             obs.append(t)
-            for kb in geom["kerbs"]:
+            for kb in geom["kerbs"] if kerbs else []:
                 pts, nrm, w = np.array(kb["pts"]), np.array(kb["nrm"]), geom["kerb_w"]
                 n = len(pts)
                 verts = [(*p, 0.0) for p in pts] + [(*(p + w * q), 0.0) for p, q in zip(pts, nrm)]
@@ -494,7 +504,7 @@ class Renderer:
         for o in list(self.frame.objects):
             bpy.data.objects.remove(o)
         self.world_env(s["env"], s["camera"]["yaw_deg"])
-        self.ground(s["env"], s["track"])
+        self.ground(s["env"], s["track"], s.get("kerbs", True))
         self.camera(s["camera"])
         groups = []
         for i, k in enumerate(s["karts"]):

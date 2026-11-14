@@ -1,0 +1,62 @@
+{
+  "imu_1": {
+    "name": "imu_1",
+    "label": "IMU 1 (Primary Waist / Floorpan)",
+    "parent_body": "chassis_front",
+    "x_m": 0.9476,
+    "y_m": 0.0033,
+    "z_m": 0.0782,
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "yaw_deg": 0.0,
+    "mass_kg": 0.045
+  },
+  "imu_2": {
+    "name": "imu_2",
+    "label": "IMU 2 (Secondary Rear Crossbar B3)",
+    "parent_body": "chassis_rear",
+    "x_m": 0.1852,
+    "y_m": -0.0117,
+    "z_m": 0.072,
+    "roll_deg": 0.0,
+    "pitch_deg": 0.0,
+    "yaw_deg": 0.0,
+    "mass_kg": 0.045
+  },
+  "gps_tower": {
+    "name": "gps_tower",
+    "label": "2-ft 80/20 GPS + Camera Tower",
+    "parent_body": "chassis_waist",
+    "x_m": 0.6397,
+    "y_m": -0.1085,
+    "z_base_m": 0.046,
+    "height_m": 0.6096,
+    "profile_width_m": 0.0381,
+    "l_bracket_leg_m": 0.05,
+    "l_bracket_yaw_deg": 0.0,
+    "gps_offset_x_m": 0.0,
+    "gps_offset_y_m": 0.0,
+    "gps_offset_z_m": 0.018,
+    "cam_offset_x_m": 0.032,
+    "cam_offset_y_m": 0.0,
+    "cam_offset_z_m": -0.028,
+    "cam_pitch_deg": -14.0,
+    "cam_yaw_deg": 0.0,
+    "cam_fov_v_deg": 58.0,
+    "cam_fov_h_deg": 86.0,
+    "mass_kg": 1.45
+  },
+  "computed": {
+    "gps_antenna_xyz_m": [
+      0.6397,
+      -0.1085,
+      0.6736
+    ],
+    "front_camera_xyz_m": [
+      0.6717,
+      -0.1085,
+      0.6276
+    ],
+    "imu_1_to_imu_2_baseline_m": 0.7626
+  }
+}

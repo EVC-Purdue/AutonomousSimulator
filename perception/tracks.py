@@ -111,6 +111,23 @@ def geometry(name):
     return {"name": name, "outer": outer.round(3).tolist(), "inner": inner.round(3).tolist(), "kerbs": kerbs, "kerb_w": KERB_W}
 
 
+def edge_obstacles(geom, line, s0, s1, rng, spacing_m=9.0):
+    """Still obstacles 0.8-2.5 m off the track edge every spacing_m of line from s0 to s1, alternating sides."""
+    kinds = ["tyre_wall", "barrier", "cone", "bin", "car", "tyre_wall"]
+    out = []
+    for i, s in enumerate(np.arange(s0, s1, spacing_m)):
+        x, y, _ = line.at(s)
+        k = geom["kerbs"][i % 2]
+        pts = np.array(k["pts"])
+        j = int(np.argmin((pts[:, 0] - x) ** 2 + (pts[:, 1] - y) ** 2))
+        kind = kinds[int(rng.integers(len(kinds)))]
+        nv = np.array(k["nrm"][j])
+        q = pts[j] - nv * float(rng.uniform(0.8, 2.5) + (2.0 if kind == "car" else 0.0))
+        out.append({"kind": kind, "xyz": [float(q[0]), float(q[1]), 0.0],
+                    "yaw_deg": math.degrees(math.atan2(nv[1], nv[0])) + 90.0, "seed": int(rng.integers(1 << 30))})
+    return out
+
+
 def props(geom, rng, level):
     """Tyre walls and trackside clutter just outside the outer edge and inside the infield."""
     n = {"none": 0, "light": 30, "heavy": 90}[level]

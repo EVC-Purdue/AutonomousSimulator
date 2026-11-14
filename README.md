@@ -35,11 +35,19 @@ local.Runner().run_once(where='local')"
 
 Tiers live in `configs/tiers/` (`smoke` is the quick check, `dev` feeds the leaderboard), recipes in `configs/recipes/`, conditions in `configs/conditions/`. Each recipe's stack is built once into a Docker volume keyed by its commit, and every episode is cached by its inputs, so a rerun only runs what changed. Results go to `results/` (`AUTONOMOUS_SIM_RESULTS`).
 
+In the `overtake` and `endurance_overtake` tiers the stack is told nothing about the opponent unless the camera is on (recipe `"sim": {"use_camera": true}`, or the kart's `use_camera` mount). With it on, the sim publishes `/opponents` in the stack's wire format, as `kart_detector_node` would, from a camera-like model in the kart's `sensors.opponents` (field of view, range limit, range bias and noise, bearing noise, missed detections, latency, frame rate, coasting). Conditions can override that model like any other sensor. No frames are rendered: running the real detector on rendered frames in the loop does not exist yet.
+
 Tests: `.venv/bin/python -m pytest -q`; the container checks are `tests/container/*.sh`.
 
 ## Camera ranging tests
 
 How well the stack localizes an opponent kart from its forward camera. These cases are not on the leaderboard. Each case renders photorealistic scenes in Blender Cycles: both karts are built from the Twister CAD parts, lit by Poly Haven HDRIs (raceways, parking lots, overcast and low sun) with tyre walls, barriers, cones and cars around them. The renders go through a camera signal model (exposure, motion blur, shot and read noise, MJPEG, camera_node's resize to 360 px) into the stack's own `kart_detector_node`, running unmodified under ROS 2. The node's `/opponents` positions are compared with the true positions.
+
+The rendered Purdue track from above, with the still obstacles around it, and the kart built from the CAD parts:
+
+![Purdue track rendered from 110 m above, with tyre stacks, barriers, cones, cars and other obstacles off the track](figures/track_topdown.jpg)
+
+![Kart rendered from above: tube frame, axles, wheels, seat, battery and motor](figures/kart_render.jpg)
 
 | Case | What varies |
 |---|---|

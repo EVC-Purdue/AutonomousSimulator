@@ -1,0 +1,26 @@
+{
+ "name": "A26 MPC stack, loc GRU + online states",
+ "source": {
+  "repo": "AutonomousKart",
+  "ref": "worktree:/Users/shay/PycharmProjects/EVC/AK-ideas/loc-variants"
+ },
+ "params": {
+  "pathfinder_node": {
+   "planner": "ilqr",
+   "mpc.adaptive_gain.enabled": true
+  },
+  "localization_node": {
+   "estimator": "gru",
+   "gps_lag_s": 0.06,
+   "online_states": true
+  }
+ },
+ "sim": {
+  "cuda": true,
+  "active_imu": "back",
+  "use_camera": false,
+  "controller_type": "mpc",
+  "baseline": true
+ },
+ "notes": "A26 MPC stack (iLQR + adaptive steering gain) with the A27 benchmark's GRU + online states in place of the A26 EKF; learned models trained on the A26 bags without PWM inputs"
+}

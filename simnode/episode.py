@@ -20,7 +20,7 @@ from simnode.devices.nmea_server import NmeaServer
 from simnode.devices.slcan_pty import SlcanPty
 from simnode.clockplan import ClockPlan, clock_plan
 from simnode.ghost import CLIP_LOOKAHEAD_M, CLIP_LOOKAHEAD_S, CLIP_PREDICT, SPEED_GAIN, SPEED_KV, Ghost
-from simnode.opponent import OpponentKart
+from simnode.opponent import OpponentKart, OpponentSensor
 from simnode.sensors.gps import Gps
 from simnode.sensors.gs3d import Gs3d
 from simnode.sensors.imu import Imu, R_MOUNT
@@ -342,7 +342,7 @@ class _Runtime:
         if sc.get("speed_cap") is not None:  # clips: only the line the stack follows after handoff; the ghost keeps the recorded speeds
             self.line = lines.cap_speed(self.line, sc["speed_cap"])
         self.track = lines.load_track()
-        ss = np.random.SeedSequence(resolved["seed"]).spawn(12)  # gps, imu, wheel, steering, imu2, slam, gs3d, opp, spare
+        ss = np.random.SeedSequence(resolved["seed"]).spawn(12)  # gps, imu, wheel, steering, imu2, slam, gs3d, opp, opp sensor, spare
         rng = [np.random.default_rng(s) for s in ss]
         with open(os.path.join(root, "data", "noise", "gps_fix_chain.json")) as f:
             chain = json.load(f)
@@ -365,6 +365,7 @@ class _Runtime:
         self.slam = Slam(slam_cfg, rng[5])
         self.gs3d = Gs3d(gs3d_cfg, rng[6])
         self.opp = OpponentKart(sc["opponent"], self.line, k, rng[7]) if sc.get("opponent") else None
+        self.opp_sensor = OpponentSensor(k["sensors"].get("opponents"), self.line, rng[8]) if self.opp and self.use_camera else None   # camera model, not rendered
         self.vesc = Vesc({**k["actuator"], "v_max": 15.0}, STEP)
         self.travel = k["steering_motor"]["travel_deg"]
         self.calib_target = calibration_target(resolved["recipe"])
@@ -385,10 +386,10 @@ class _Runtime:
         from nav_msgs.msg import Odometry
         from rosgraph_msgs.msg import Clock
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-        from std_msgs.msg import Float32MultiArray, Header, Int16MultiArray, String
+        from std_msgs.msg import Float32MultiArray, Float64MultiArray, Header, Int16MultiArray, String
         from simnode.plant import Plant
         from simnode.stack import Stack
-        self.Clock, self.F32, self.I16, self.Odometry = Clock, Float32MultiArray, Int16MultiArray, Odometry
+        self.Clock, self.F32, self.F64, self.I16, self.Odometry = Clock, Float32MultiArray, Float64MultiArray, Int16MultiArray, Odometry
         k = self.kart
         self.plant = Plant(k, root)
         self.pty, self.nmea = SlcanPty(), NmeaServer(0)
@@ -418,6 +419,7 @@ class _Runtime:
         self.slam_pub = self.pub_node.create_publisher(Odometry, "slam/odom", 10)
         self.gs3d_pub = self.pub_node.create_publisher(Odometry, "gs3d/pose", 10)
         self.obs_pub = self.pub_node.create_publisher(Float32MultiArray, "perception/obstacles", 10)
+        self.opp_pub = self.pub_node.create_publisher(Float64MultiArray, "opponents", 5) if self.opp_sensor else None
         self.steer_cur_pub = self.pub_node.create_publisher(Float32MultiArray, "sim/steering_current", 10)
         self.manual_pub = self.pub_node.create_publisher(Float32MultiArray, "manual_commands", 5)
         self.node.create_subscription(Odometry, "odom", self._on_odom, 10)
@@ -801,6 +803,11 @@ def _run(rt, rows, out, plans):
                 obs = opp.perception_payload(row["x"], row["y"], row["yaw"], row["vx"])
                 if obs and getattr(rt, "obs_pub", None) is not None:
                     rt.obs_pub.publish(rt.F32(data=obs))
+            msg = rt.opp_sensor.step(row["t"], row["x"], row["y"], row["yaw"], opp) if getattr(rt, "opp_sensor", None) else None
+            if msg is not None:
+                rt.opp_pub.publish(rt.F64(data=msg))
+                if msg[0] > 0:
+                    row.update(opp_det_s=msg[2], opp_det_d=msg[3], opp_det_stamp=msg[6])
             out["overtake_completed"] = opp.overtake_completed
             out["overtake_time_s"] = opp.overtake_time_s
             out["min_clearance_m"] = opp.min_clearance_m

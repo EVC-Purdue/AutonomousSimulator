@@ -1,0 +1,26 @@
+{
+ "name": "overtake",
+ "version": 1,
+ "description": "Overtake test: 14 kW ego kart overtaking a 5 kW opponent kart across the 3x3 noise x tire grid.",
+ "runs": [
+  {
+   "test": "overtake",
+   "laps": 2,
+   "lines": [
+    "center",
+    "line1"
+   ],
+   "conditions": "grid_3x3",
+   "opponent": {
+    "mode": "kart_5kw",
+    "power_kw": 5.0,
+    "spawn_ahead_m": 12.0,
+    "trigger_lap": 0,
+    "line": "center"
+   }
+  }
+ ],
+ "seeds": [
+  0
+ ]
+}

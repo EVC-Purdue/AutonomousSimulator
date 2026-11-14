@@ -1,0 +1,29 @@
+{
+ "name": "endurance_overtake",
+ "version": 1,
+ "description": "Drive 50 laps continuously (online learning / warm tires), then overtake a 5 kW opponent on lap 50.",
+ "runs": [
+  {
+   "test": "endurance_overtake",
+   "laps": 50,
+   "lines": [
+    "line1"
+   ],
+   "conditions": [
+    "noise_medium_tire_medium",
+    "noise_low_tire_high",
+    "noise_high_tire_low"
+   ],
+   "opponent": {
+    "mode": "kart_5kw",
+    "power_kw": 5.0,
+    "spawn_ahead_m": 15.0,
+    "trigger_lap": 49,
+    "line": "center"
+   }
+  }
+ ],
+ "seeds": [
+  0
+ ]
+}
