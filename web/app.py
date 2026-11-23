@@ -16,7 +16,7 @@ import types
 import numpy as np
 from flask import Flask, Response, abort, jsonify, render_template, request
 
-from harness import clips, config, lines, metrics, tiers
+from harness import clips, config, lines, metrics, stacks, tiers
 from harness.metrics import UNSAFE
 from runner import jobs, local, store
 
@@ -145,6 +145,7 @@ def _line_xy(name):
 def _row(job):
     p = jobs.progress(job["id"]) if job["status"] in jobs.ACTIVE else {"eta_s": None}
     return {"id": job["id"], "recipe": job["recipe"]["name"], "ref": job["recipe"]["source"]["ref"],
+            "stack": stacks.of(job["recipe"])["label"],
             "tier": job["tier"], "user": job["user"], "notes": job["notes"], "status": job["status"],
             "where": job["where"], "submitted_at": job["submitted_at"], "started_at": job["started_at"],
             "finished_at": job["finished_at"], "done": job["done"], "total": job["total"], "eta_s": p["eta_s"]}
@@ -478,16 +479,17 @@ def create_app():
         if errors:
             return jsonify({"errors": errors}), 400
         notes = str(d.get("notes") or "").strip()
-        recipe = {"name": d["recipe_name"].strip(), "source": {"repo": "AutonomousKart", "ref": d["ref"].strip()},
+        repo = str(d.get("repo") or "AutonomousKart").strip()
+        recipe = {"name": d["recipe_name"].strip(), "source": {"repo": repo, "ref": d["ref"].strip()},
                   "params": params, "notes": notes, **({"sim": d["sim"]} if d.get("sim") else {})}
         try:
-            commit = local.resolve_ref(recipe["source"]["ref"])
+            commit = local.resolve_ref(recipe["source"]["ref"], repo)
         except ValueError as e:
             return jsonify({"errors": {"ref": str(e)}}), 400
         if commit:
             recipe["source"]["commit"] = commit
         try:
-            local.check_params(commit or recipe["source"]["ref"], params)
+            local.check_params(commit or recipe["source"]["ref"], params, repo=repo)
         except ValueError as e:
             return jsonify({"errors": {"params": str(e)}}), 400
         if tier == "dev" and not _smoked(recipe):
@@ -499,7 +501,7 @@ def create_app():
     def api_job(job_id):
         job = _job_or_404(job_id)
         sl = _slice()
-        build = lambda: {"job": job, "progress": jobs.progress(job_id), "headline": dict(jobs.headline(job_id, sl), loc_rms=_loc_head(job_id, sl)),  # noqa: E731
+        build = lambda: {"job": dict(job, stack=stacks.of(job["recipe"])["label"]), "progress": jobs.progress(job_id), "headline": dict(jobs.headline(job_id, sl), loc_rms=_loc_head(job_id, sl)),  # noqa: E731
                          "breakdown": _breakdown(job_id, sl), "options": jobs.options([job_id], sl)}
         if job["status"] in jobs.ACTIVE + ("queued",):
             return jsonify(build())

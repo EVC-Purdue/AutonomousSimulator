@@ -1,0 +1,13 @@
+{
+ "notes": "A26 stack: device-level adapters (slcan pty, NMEA socket, raw IMU words), per-node /clock and the master HTTP API",
+ "label": "A26",
+ "repo_env": "AUTONOMOUS_KART_REPO",
+ "ros_distro": "humble",
+ "image": "evc-sim:dev",
+ "interface": "device",
+ "launch": "bringup_simdev.launch.py",
+ "launch_args": {},
+ "sim_support": "src/autonomous_kart/autonomous_kart/launch/bringup_simdev.launch.py",
+ "nodes": ["pathfinder_node", "master_api", "localization_node", "e_comms_node", "gps_node", "imu_node"],
+ "bag_topics": ["cmd_drive", "odom", "gps", "imu", "manual_commands", "system_state"]
+}

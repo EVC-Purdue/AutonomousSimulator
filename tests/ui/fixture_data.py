@@ -154,7 +154,7 @@ def _clip(r, rng, q):
 
 
 class RichFake(FakeDocker):
-    def build_stack(self, ref, h):
+    def build_stack(self, ref, h, repo=None):
         if ref == "bad":
             os.makedirs(os.path.join(store.RESULTS, "builds"), exist_ok=True)
             log = os.path.join(store.RESULTS, "builds", "bad.log")
@@ -211,9 +211,9 @@ def install(mp, n_clips=2, conditions=None):
     mp.setattr(local, "stack_hash", fd.stack_hash)
     mp.setattr(local, "build_stack", fd.build_stack)
     mp.setattr(local, "run_batch", fd.run_batch)
-    mp.setattr(local, "image_engine", lambda: config.engine_version())
-    mp.setattr(local, "missing_sim_support", lambda ref, h: None, raising=False)
-    mp.setattr(local, "resolve_ref", lambda ref: None, raising=False)
+    mp.setattr(local, "image_engine", lambda image=None: config.engine_version())
+    mp.setattr(local, "missing_sim_support", lambda ref, h, repo=None: None, raising=False)
+    mp.setattr(local, "resolve_ref", lambda ref, repo=None: None, raising=False)
     mp.setattr(store, "hf_upload", lambda patterns, deletes=(): None)
     mp.setattr(store, "FULL_LOG_TIERS", ("smoke", "dev"))   # the viewer fixtures open dev episodes
     mp.setenv("AUTONOMOUS_SIM_HF_UPLOAD", "0")   # no HF here: logs stay local

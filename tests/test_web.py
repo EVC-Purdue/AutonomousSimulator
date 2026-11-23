@@ -441,7 +441,7 @@ def test_submit_gautschi_smoke_and_dev(client):
 def test_submit_bad_ref_names_ref_and_meta_lists_refs(client, monkeypatch):
     from runner import local
 
-    def resolve(ref):
+    def resolve(ref, repo=None):
         raise ValueError("Unknown ref " + ref)
     monkeypatch.setattr(local, "resolve_ref", resolve)
     monkeypatch.setattr(local, "recent_refs", lambda: ["origin/newer", "main"])

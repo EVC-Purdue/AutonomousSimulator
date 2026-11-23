@@ -16,7 +16,7 @@ import traceback
 
 import numpy as np
 
-from harness import clips, config, lines, metrics, tiers
+from harness import clips, config, lines, metrics, stacks, tiers
 from runner import jobs, store
 
 def _default_repo(name):
@@ -42,6 +42,15 @@ BATCH = 5
 HPC_THREADS = 256   # threads waiting on Gautschi episodes; one per episode exhausts the process at 10k
 AK_REPO = os.environ.get("AUTONOMOUS_KART_REPO", os.environ.get("AK_REPO", _default_repo("AutonomousKart")))
 PARAMS_DIR = "src/autonomous_kart/autonomous_kart/params"
+def repo_dir(repo=stacks.DEFAULT_REPO):
+    """Local clone of a stack repo: AK_REPO for A26, else the profile's env var or a sibling checkout."""
+    return AK_REPO if repo == stacks.DEFAULT_REPO else os.environ.get(stacks.load(repo)["repo_env"], _default_repo(repo))
+
+
+def ros_cmd(cmd, distro):
+    return cmd.replace("/opt/ros/humble/", f"/opt/ros/{distro}/")
+
+
 RUN_CMD = ("source /opt/ros/humble/setup.bash && source /ws/install/setup.bash"
            " && python3 -m simnode.batch /batch.json /out")
 BUILD_CMD = ("rm -rf /ws/src /ws/build /ws/install /ws/.build_ok && mkdir -p /ws/src && cp -a /src/. /ws/src/"
@@ -75,7 +84,7 @@ def _git(*args):
     return subprocess.run(["git", *args], capture_output=True, text=True, check=True).stdout
 
 
-def stack_hash(ref):
+def stack_hash(ref, repo=stacks.DEFAULT_REPO):
     if ref.startswith("worktree:"):
         wt = _wt_dir(ref)
         untracked = ""
@@ -85,14 +94,14 @@ def stack_hash(ref):
                     untracked += f + hashlib.sha256(fh.read()).hexdigest()
         return hashlib.sha256((_git("-C", wt, "rev-parse", "HEAD") + _git("-C", wt, "diff", "HEAD")
                                + untracked).encode()).hexdigest()
-    return _git("-C", AK_REPO, "rev-parse", ref + "^{commit}").strip()
+    return _git("-C", repo_dir(repo), "rev-parse", ref + "^{commit}").strip()
 
 
-def _fetch():
+def _fetch(repo=stacks.DEFAULT_REPO):
     """Fetches origin into remote-tracking refs only; the checkout and local branches are never touched."""
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_SSH_COMMAND="ssh -o BatchMode=yes")
     try:
-        r = subprocess.run(["git", "-C", AK_REPO, "fetch", "--quiet", "origin"], capture_output=True, text=True,
+        r = subprocess.run(["git", "-C", repo_dir(repo), "fetch", "--quiet", "origin"], capture_output=True, text=True,
                            env=env, timeout=60)
         if r.returncode != 0:
             print(f"git fetch failed: {r.stderr[-500:]}", file=sys.stderr)
@@ -100,39 +109,46 @@ def _fetch():
         print(f"git fetch failed: {e!r}", file=sys.stderr)
 
 
-def resolve_ref(ref):
+def resolve_ref(ref, repo=stacks.DEFAULT_REPO):
     """Full commit SHA of a branch (local, else origin/<ref>), tag or SHA in AK_REPO after a fetch; None for worktree:."""
     if ref.startswith("worktree:"):
         return None
     if not ref or ref.startswith("-") or ":" in ref:
         raise ValueError(f"Unknown ref {ref}")
-    _fetch()
+    _fetch(repo)
     for cand in (ref, "origin/" + ref):
-        r = subprocess.run(["git", "-C", AK_REPO, "rev-parse", "--verify", "--quiet", cand + "^{commit}"],
+        r = subprocess.run(["git", "-C", repo_dir(repo), "rev-parse", "--verify", "--quiet", cand + "^{commit}"],
                            capture_output=True, text=True)
         if r.returncode == 0:
             return r.stdout.strip()
     raise ValueError(f"Unknown ref {ref}")
 
 
-def recent_refs(n=40):
+def recent_refs(n=40, repo=stacks.DEFAULT_REPO):
     """Local and origin branches, newest commit first."""
-    r = subprocess.run(["git", "-C", AK_REPO, "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)",
+    r = subprocess.run(["git", "-C", repo_dir(repo), "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)",
                         "refs/heads", "refs/remotes/origin"], capture_output=True, text=True)
     return [x for x in r.stdout.split() if x not in ("origin/HEAD", "origin")][:n]
 
 
-def missing_sim_support(ref, h):
+def missing_sim_support(ref, h, repo=stacks.DEFAULT_REPO):
     """Why the stack at ref (built tree h) cannot run in the sim, or None."""
+    prof = stacks.load(repo)
+    path, marker = prof.get("sim_support", SIM_SUPPORT), prof.get("sim_support_marker")
     if ref.startswith("worktree:"):
-        ok = os.path.exists(os.path.join(_wt_dir(ref), SIM_SUPPORT))
+        f = os.path.join(_wt_dir(ref), path)
+        ok = os.path.exists(f)
+        if ok and marker:
+            with open(f) as fh:
+                ok = marker in fh.read()
     else:
-        ok = subprocess.run(["git", "-C", AK_REPO, "cat-file", "-e", f"{h}:{SIM_SUPPORT}"], capture_output=True).returncode == 0
-    return None if ok else (f"{ref} lacks the sim-support changes: {SIM_SUPPORT} is missing. Merge or rebase onto the"
-                            " sim-support branch to run it in the simulator.\n")
+        r = subprocess.run(["git", "-C", repo_dir(repo), "show", f"{h}:{path}"], capture_output=True, text=True)
+        ok = r.returncode == 0 and (not marker or marker in r.stdout)
+    return None if ok else (f"{ref} lacks the sim-support changes: {path} is missing{' or lacks ' + marker if marker else ''}."
+                            " Merge or rebase onto the sim-support branch to run it in the simulator.\n")
 
 
-def stack_params(ref):
+def stack_params(ref, repo=stacks.DEFAULT_REPO):
     """{node: parameter names} from the stack's params YAMLs at ref."""
     import yaml
     if ref.startswith("worktree:"):
@@ -143,8 +159,8 @@ def stack_params(ref):
                 with open(os.path.join(d, n)) as f:
                     texts.append(f.read())
     else:
-        names = _git("-C", AK_REPO, "ls-tree", "--name-only", f"{ref}:{PARAMS_DIR}").split()
-        texts = [_git("-C", AK_REPO, "show", f"{ref}:{PARAMS_DIR}/{n}") for n in names if n.endswith(".yaml")]
+        names = _git("-C", repo_dir(repo), "ls-tree", "--name-only", f"{ref}:{PARAMS_DIR}").split()
+        texts = [_git("-C", repo_dir(repo), "show", f"{ref}:{PARAMS_DIR}/{n}") for n in names if n.endswith(".yaml")]
     out = {}
     for t in texts:
         for node, block in (yaml.safe_load(t) or {}).items():
@@ -152,16 +168,16 @@ def stack_params(ref):
     return out
 
 
-def check_params(ref, params, by_kart=None):
+def check_params(ref, params, by_kart=None, repo=stacks.DEFAULT_REPO):
     """Raises ValueError for a node or parameter the stack's YAML at ref does not declare."""
     for kart, p in (by_kart or {}).items():  # per-kart-design overrides: a known kart, then the same checks
         if not os.path.exists(os.path.join(config.CONFIGS, "karts", kart + ".json")):
             raise ValueError(f"Unknown kart {kart}")
-        check_params(ref, p)
+        check_params(ref, p, repo=repo)
     if not params:
         return
     try:
-        known = stack_params(ref)
+        known = stack_params(ref, repo)
     except (subprocess.CalledProcessError, OSError) as e:
         raise ValueError(f"Cannot read the stack params at {ref}: {e}")
     for node, p in params.items():
@@ -174,8 +190,8 @@ def check_params(ref, params, by_kart=None):
             raise ValueError(f"Unknown {node} parameter " + ", ".join(bad))
 
 
-def image_engine():
-    r = subprocess.run(["docker", "run", "--rm", IMAGE, "cat", "/opt/sim/ENGINE"], capture_output=True, text=True)
+def image_engine(image=IMAGE):
+    r = subprocess.run(["docker", "run", "--rm", image, "cat", "/opt/sim/ENGINE"], capture_output=True, text=True)
     return r.stdout.strip()
 
 
@@ -225,13 +241,15 @@ def run_ideas(job_id):
         raise RuntimeError(f"the ideas driver of {job_id} exited without finishing it")
 
 
-def build_stack(ref, h):
+def build_stack(ref, h, repo=stacks.DEFAULT_REPO):
+    prof = stacks.load(repo)
+    image = prof["image"]
     volume = "evc-stack-" + h
     os.makedirs(os.path.join(store.RESULTS, "builds"), exist_ok=True)
     log = os.path.join(store.RESULTS, "builds", h + ".log")
     with tempfile.TemporaryDirectory(dir=os.path.join(store.RESULTS, "builds")) as tmp, open(log, "w") as f:
         try:
-            probe = ["docker", "run", "--rm", "-v", volume + ":/ws", IMAGE, "test", "-f", "/ws/.build_ok"]
+            probe = ["docker", "run", "--rm", "-v", volume + ":/ws", image, "test", "-f", "/ws/.build_ok"]
             if subprocess.run(["docker", "volume", "inspect", volume], capture_output=True).returncode == 0 \
                     and subprocess.run(probe, capture_output=True).returncode == 0:
                 return volume
@@ -239,11 +257,11 @@ def build_stack(ref, h):
                 src = os.path.join(_wt_dir(ref), "src")
             else:
                 src = os.path.join(tmp, "src")
-                archive = subprocess.run(["git", "-C", AK_REPO, "archive", h, "src"], capture_output=True, check=True)
+                archive = subprocess.run(["git", "-C", repo_dir(repo), "archive", h, "src"], capture_output=True, check=True)
                 subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
             subprocess.run(["docker", "volume", "create", volume], stdout=f, stderr=subprocess.STDOUT, check=True)
-            subprocess.run(["docker", "run", "--rm", "-v", volume + ":/ws", "-v", src + ":/src:ro", IMAGE,
-                            "bash", "-lc", BUILD_CMD], stdout=f, stderr=subprocess.STDOUT, check=True)
+            subprocess.run(["docker", "run", "--rm", "-v", volume + ":/ws", "-v", src + ":/src:ro", image,
+                            "bash", "-lc", ros_cmd(BUILD_CMD, prof["ros_distro"])], stdout=f, stderr=subprocess.STDOUT, check=True)
         except (subprocess.CalledProcessError, OSError) as e:
             f.write(f"\n{e!r}\n{getattr(e, 'stderr', '') or ''}\n")
             raise BuildError(log)
@@ -251,6 +269,7 @@ def build_stack(ref, h):
 
 
 def run_batch(episodes, volume, job_id=None):
+    prof = stacks.of(episodes[0]["recipe"])
     os.makedirs(os.path.join(store.RESULTS, "episodes"), exist_ok=True)
     os.makedirs(os.path.join(store.RESULTS, "tmp"), exist_ok=True)
     with tempfile.TemporaryDirectory(dir=os.path.join(store.RESULTS, "tmp")) as tmp:
@@ -259,7 +278,8 @@ def run_batch(episodes, volume, job_id=None):
         r = subprocess.run(["docker", "run", "--rm", *(["--label", "evc-job=" + job_id] if job_id else []),
                             "--cpus", "2", "-m", "3g", "-v", volume + ":/ws",
                             "-v", os.path.join(store.RESULTS, "episodes") + ":/out",
-                            "-v", os.path.join(tmp, "batch.json") + ":/batch.json", IMAGE, "bash", "-lc", RUN_CMD],
+                            "-v", os.path.join(tmp, "batch.json") + ":/batch.json", prof["image"], "bash", "-lc",
+                            ros_cmd(RUN_CMD, prof["ros_distro"])],
                            capture_output=True, text=True)
     if r.returncode != 0:
         print(f"batch exited {r.returncode}: {r.stderr[-2000:]}", file=sys.stderr)
@@ -362,13 +382,17 @@ class Runner:
     def _run_job(self, job):
         jid = job["id"]
         ref = job["recipe"]["source"]["ref"]
+        repo = stacks.repo_of(job["recipe"])
         started = store.now()
+        if repo != stacks.DEFAULT_REPO and job["where"] != "local":
+            self._build_failed(jid, text=f"{repo} stacks run on the local runner only; {job['where']} has no {stacks.load(repo)['image']} image\n")
+            return
         try:
-            h = job["recipe"]["source"].get("commit") or stack_hash(ref)   # the commit resolved at submit
+            h = job["recipe"]["source"].get("commit") or stack_hash(ref, repo)   # the commit resolved at submit
         except (subprocess.CalledProcessError, OSError) as e:
             self._build_failed(jid, text=f"{e!r}\n{getattr(e, 'stderr', '') or ''}\n")
             return
-        why = missing_sim_support(ref, h)
+        why = missing_sim_support(ref, h, repo)
         if why:
             self._build_failed(jid, text=why)
             return
@@ -396,14 +420,15 @@ class Runner:
                                           or 1) if gpu else (min(len(modal_app.pack(new)), modal_app.MAX_CONTAINERS) or 1) if remote
                   else gautschi.workers(job["tier"], len(new), job["where"]) if hpc else self.workers)
         if new:
-            baked = None if remote else gautschi.image_engine(engine) if hpc else image_engine()
+            image = stacks.load(repo)["image"]
+            baked = None if remote else gautschi.image_engine(engine) if hpc else image_engine(image)
             if not remote and baked != engine:
-                self._build_failed(jid, text=f"rebuild {gautschi.sif() if hpc else 'evc-sim:dev'}: its engine {baked[:12] or 'none'}"
+                self._build_failed(jid, text=f"rebuild {gautschi.sif() if hpc else image}: its engine {baked[:12] or 'none'}"
                                              f" differs from this checkout's {engine[:12]}\n")
                 return
             try:
                 volume = modal_app.stack_src(ref, h, gpu) if remote else gautschi.build_stack(ref, h, job["where"]) if hpc \
-                    else build_stack(ref, h)
+                    else build_stack(ref, h, repo)
             except BuildError as e:
                 self._build_failed(jid, src=e.log)
                 return

@@ -1,4 +1,4 @@
-"""Launches the AutonomousKart stack (bringup_simdev) with per-episode parameters, plus a bag recorder."""
+"""Launches the recipe's stack (its profile's launch file) with per-episode parameters, plus a bag recorder."""
 import json
 import os
 import signal
@@ -18,10 +18,10 @@ def _scalar(v):
     return json.dumps(v)  # JSON scalars and flat lists are valid YAML
 
 
-def params_yaml(episode_params, recipe_params):
+def params_yaml(episode_params, recipe_params, nodes=NODES):
     """ROS 2 params YAML with one ros__parameters block per launched node. "/**" keys are copied into every node's
     block, because a package YAML's node block beats a "/**" block. Recipe params merge last."""
-    nodes = {n: {} for n in NODES}
+    nodes = {n: {} for n in nodes}
     for src in (episode_params, recipe_params or {}):
         for n in nodes:
             nodes[n].update(src.get("/**", {}))
@@ -43,11 +43,11 @@ def _killpg(p, sig):
 
 
 class Stack:
-    def __init__(self, recipe, episode_params, tmp):
-        self.tmp = tmp
+    def __init__(self, recipe, episode_params, tmp, profile=None):
+        self.tmp, self.profile = tmp, profile or {}
         self.yaml = os.path.join(tmp, "episode_params.yaml")
         with open(self.yaml, "w") as f:
-            f.write(params_yaml(episode_params, recipe.get("params")))
+            f.write(params_yaml(episode_params, recipe.get("params"), self.profile.get("nodes", NODES)))
         self.log = open(os.path.join(tmp, "stack.log"), "w")
         self.procs = []
         try:
@@ -57,8 +57,10 @@ class Stack:
             raise
 
     def _start(self):
-        cmds = [["ros2", "launch", "autonomous_kart", "bringup_simdev.launch.py", f"episode_params:={self.yaml}"],
-                ["ros2", "bag", "record", "-s", "mcap", "-o", os.path.join(self.tmp, "bag")] + BAG_TOPICS]
+        p = self.profile
+        launch = ["ros2", "launch", "autonomous_kart", p.get("launch", "bringup_simdev.launch.py"), f"episode_params:={self.yaml}"]
+        cmds = [launch + [f"{k}:={v}" for k, v in p.get("launch_args", {}).items()],
+                ["ros2", "bag", "record", "-s", "mcap", "-o", os.path.join(self.tmp, "bag")] + p.get("bag_topics", BAG_TOPICS)]
         for c in cmds:
             self.procs.append(subprocess.Popen(c, cwd=self.tmp, stdout=self.log, stderr=subprocess.STDOUT,
                                                start_new_session=True, env=ENV))

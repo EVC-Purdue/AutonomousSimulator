@@ -87,7 +87,7 @@ def test_submit_stores_commit_and_a_moved_branch_gets_new_keys(ak, tmp_results):
 
 def test_job_builds_the_submitted_commit_not_the_moved_branch(ak, tmp_results, real_git, monkeypatch):
     built = []
-    monkeypatch.setattr(local, "build_stack", lambda ref, h: built.append(h) or real_git.build_stack(ref, h))
+    monkeypatch.setattr(local, "build_stack", lambda ref, h, repo=None: built.append(h) or real_git.build_stack(ref, h))
     jid = jobs.submit("smoke", _recipe("main"), "u", "x")
     _commit(ak["up"], "src/h.txt", "h", "move main")
     local.Runner(workers=1).run_once()

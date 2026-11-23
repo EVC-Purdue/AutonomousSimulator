@@ -1,0 +1,9 @@
+{
+ "name": "a27-stack",
+ "source": {
+  "repo": "A27",
+  "ref": "main"
+ },
+ "params": {},
+ "notes": "A27 stack at the topic level: the sim stands in for its drivers, SLAM and 3DGS"
+}

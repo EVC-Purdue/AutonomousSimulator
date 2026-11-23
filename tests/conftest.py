@@ -35,12 +35,12 @@ class FakeDocker:
     def __init__(self):
         self.batch_calls, self.build_calls, self.tree = 0, 0, "tree-1"
 
-    def stack_hash(self, ref):
+    def stack_hash(self, ref, repo=None):
         if ref == "nohash":
             raise subprocess.CalledProcessError(128, ["git", "rev-parse"], stderr="fatal: bad revision 'nohash'")
         return "tree-bad" if ref == "bad" else self.tree   # a broken stack is a different tree
 
-    def build_stack(self, ref, h):
+    def build_stack(self, ref, h, repo=None):
         from runner import local, store
         self.build_calls += 1
         if ref == "bad":
@@ -75,9 +75,9 @@ def fake_docker(monkeypatch):
     monkeypatch.setattr(local, "stack_hash", fd.stack_hash)
     monkeypatch.setattr(local, "build_stack", fd.build_stack)
     monkeypatch.setattr(local, "run_batch", fd.run_batch)
-    monkeypatch.setattr(local, "image_engine", lambda: config.engine_version(), raising=False)
-    monkeypatch.setattr(local, "resolve_ref", lambda ref: None, raising=False)   # fake refs resolve at run time
-    monkeypatch.setattr(local, "missing_sim_support", lambda ref, h: None, raising=False)
+    monkeypatch.setattr(local, "image_engine", lambda image=None: config.engine_version(), raising=False)
+    monkeypatch.setattr(local, "resolve_ref", lambda ref, repo=None: None, raising=False)   # fake refs resolve at run time
+    monkeypatch.setattr(local, "missing_sim_support", lambda ref, h, repo=None: None, raising=False)
     return fd
 
 

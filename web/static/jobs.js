@@ -42,7 +42,7 @@ function renderList() {
     const row = h("div", { class: "row" + (S.sel === j.id && S.mode !== "compare" ? " sel" : ""), "data-id": j.id,
       onclick: () => select(j.id) },
       h("span", { class: "name", text: j.recipe, title: j.recipe }),
-      h("span", { class: "tag " + j.tier, text: j.tier }),
+      h("span", { class: "tags" }, h("span", { class: "tag " + j.stack.toLowerCase(), text: j.stack }), h("span", { class: "tag " + j.tier, text: j.tier })),
       h("label", { class: "chk" + (on ? " on" : ""), onclick: (e) => e.stopPropagation() }, box),
       h("span", { class: "sub", text: j.user }),
       rowStatus(j));
@@ -116,7 +116,7 @@ function headerFor(job, progress) {
   if (job.status === "failed") meta.append(h("span", { class: "status-bad", text: "failed" }));
   if (job.status === "queued") meta.append(h("span", { text: "queued" }));
   if (job.errors > 0) meta.append(h("span", { class: "status-bad", text: job.errors + " err" }));
-  const out = [h("div", { class: "head" }, h("h1", { text: job.recipe.name }), h("span", { class: "tag " + job.tier, text: job.tier }), meta, delButton(job.id))];
+  const out = [h("div", { class: "head" }, h("h1", { text: job.recipe.name }), h("span", { class: "tags" }, h("span", { class: "tag " + job.stack.toLowerCase(), text: job.stack }), h("span", { class: "tag " + job.tier, text: job.tier })), meta, delButton(job.id))];
   if (job.notes) out.push(h("p", { class: "notes", text: job.notes }));
   if (ACTIVE.includes(job.status) && progress.total) out.push(h("div", { class: "prog" }, h("i", { style: `width:${(100 * progress.done) / progress.total}%` })));
   return out;

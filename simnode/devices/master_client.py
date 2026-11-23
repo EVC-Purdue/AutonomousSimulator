@@ -5,8 +5,8 @@ import urllib.request
 
 
 class MasterClient:
-    def __init__(self, port=8000, tries=20, wait_s=0.25):
-        self.url, self.tries, self.wait_s = f"http://127.0.0.1:{port}", tries, wait_s
+    def __init__(self, port=8000, tries=20, wait_s=0.25, state_path="/set_state"):
+        self.url, self.tries, self.wait_s, self.state_path = f"http://127.0.0.1:{port}", tries, wait_s, state_path
 
     def _call(self, path, body=None):
         err = None
@@ -22,8 +22,8 @@ class MasterClient:
         raise ConnectionError(f"master API {path}: {err!r}")
 
     def set_state(self, name):
-        out = self._call("/set_state", {"state": name})
-        if "success" not in out:
+        out = self._call(self.state_path, {"state": name})
+        if "success" not in out and out.get("state") != name:  # A26 answers success, A27 echoes the state
             raise RuntimeError(f"set_state {name}: {out}")
         return out
 

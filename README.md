@@ -6,12 +6,15 @@ End-to-end simulator for the Purdue EVC autonomous kart. It runs the real ROS 2 
 ## Setup
 
 - Docker, and a clone of AutonomousKart next to this repo (or set `AUTONOMOUS_KART_REPO`)
+- For recipes with `source.repo` `A27`: a clone of A27 next to this repo (or set `A27_REPO`), and the Jazzy images
 - Host Python: `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
 - Images, built once and again after any change under `harness/`, `simnode/`, `configs/` or `tracks/`:
 
 ```
 docker build -f docker/Dockerfile.base -t evc-sim-base:1 docker   # ROS 2 Humble + PyChrono 10, slow
 docker build -f docker/Dockerfile -t evc-sim:dev .
+docker build -f docker/Dockerfile.base --build-arg ROS_DISTRO=jazzy --build-arg PY=3.12 -t evc-sim-base:jazzy docker   # A27 only
+docker build -f docker/Dockerfile --build-arg BASE=evc-sim-base:jazzy --build-arg PY=3.12 -t evc-sim:jazzy .
 ```
 
 A job won't run when `evc-sim:dev` was built from a different checkout than the current one.

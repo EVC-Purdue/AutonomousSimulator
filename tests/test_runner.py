@@ -132,7 +132,7 @@ def test_laps_completed_comes_from_the_sim_outcome(tmp_results):
 
 
 def test_stale_image_is_build_failed(tmp_results, fake_docker, monkeypatch):
-    monkeypatch.setattr(local, "image_engine", lambda: "old")
+    monkeypatch.setattr(local, "image_engine", lambda image=None: "old")
     jid = jobs.submit("smoke", recipe(), "u", "x")
     local.Runner(workers=1).run_once()
     job = jobs.get(jid)

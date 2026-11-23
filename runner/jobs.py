@@ -38,10 +38,11 @@ def submit(tier, recipe, user, notes, where="local"):
     config.validate("recipe", recipe)
     config.validate("job", {"tier": tier, "recipe": recipe["name"], "user": user, "notes": notes})
     if "commit" not in recipe["source"]:
-        commit = local.resolve_ref(recipe["source"]["ref"])   # ValueError for an unknown ref
+        commit = local.resolve_ref(recipe["source"]["ref"], recipe["source"]["repo"])   # ValueError for an unknown ref
         if commit:
             recipe = dict(recipe, source=dict(recipe["source"], commit=commit))
-    local.check_params(recipe["source"].get("commit") or recipe["source"]["ref"], recipe["params"], recipe.get("params_by_kart"))
+    local.check_params(recipe["source"].get("commit") or recipe["source"]["ref"], recipe["params"], recipe.get("params_by_kart"),
+                       recipe["source"]["repo"])
     if where == "ideas" and "cuda" not in recipe.get("sim", {}):
         recipe = dict(recipe, sim={**recipe.get("sim", {}), "cuda": True})   # ideas8 has a GPU; without it the MPC (telemetry under pure pursuit too) runs in numpy, ~17x slower
     stem = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + re.sub(r"[^A-Za-z0-9_.-]", "_", recipe["name"])
