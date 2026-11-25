@@ -8,7 +8,7 @@ import shutil
 import sys
 import traceback
 
-from harness import config
+from harness import config, stacks
 from runner import gautschi as g, jobs, local, store
 
 HOST = os.environ.get("IDEAS_HOST", "csuser@100.88.24.43")   # ideas8 over Tailscale
@@ -54,9 +54,10 @@ def submit(episodes, stack, jid, workers=None):
     if r.returncode != 0:
         raise RuntimeError("rsync of the job to ideas failed: " + r.stderr[-500:])
     w = workers or g.GPU["workers"]
+    distro = stacks.of(job["recipe"])["ros_distro"]
     work = f"/dev/shm/AutoSim-{jid}-{attempt}"
     run = (f"trap \"rm -rf {work}\" EXIT; python3 $HOME/{rdir}/gautschi_launch.py --episodes $HOME/{rdir}/episodes.json"
-           f" --out $HOME/{g.OUT}/{jid} --sif $HOME/{g.sif()} --engine $HOME/AutoSim/engine/{config.engine_version()}"
+           f" --out $HOME/{g.OUT}/{jid} --sif $HOME/{g.sif(distro)} --engine $HOME/AutoSim/engine/{config.engine_version()} --distro {distro}"
            f" --stack $HOME/{stack} --workers {w} --work {work} --timeline $HOME/{rdir}/timeline.jsonl"
            f" --done $HOME/{rdir}/done.txt --gpus 1")
     r = ssh(f"mkdir -p {g.OUT}/{jid}; cd; setsid nohup bash -c '{run}' > {rdir}/launch.out 2>&1 < /dev/null & echo $!")

@@ -13,7 +13,7 @@ End-to-end simulator for the Purdue EVC autonomous kart. It runs the real ROS 2 
 ```
 docker build -f docker/Dockerfile.base -t evc-sim-base:1 docker   # ROS 2 Humble + PyChrono 10, slow
 docker build -f docker/Dockerfile -t evc-sim:dev .
-docker build -f docker/Dockerfile.base --build-arg ROS_DISTRO=jazzy --build-arg PY=3.12 -t evc-sim-base:jazzy docker   # A27 only
+docker build -f docker/Dockerfile.base.jazzy -t evc-sim-base:jazzy docker   # A27 only
 docker build -f docker/Dockerfile --build-arg BASE=evc-sim-base:jazzy --build-arg PY=3.12 -t evc-sim:jazzy .
 ```
 

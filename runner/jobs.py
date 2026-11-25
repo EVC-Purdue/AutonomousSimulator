@@ -10,7 +10,7 @@ import threading
 import time
 import uuid
 
-from harness import clips, config, metrics
+from harness import clips, config, metrics, stacks
 from runner import store
 
 ACTIVE = ("building", "running")
@@ -43,7 +43,7 @@ def submit(tier, recipe, user, notes, where="local"):
             recipe = dict(recipe, source=dict(recipe["source"], commit=commit))
     local.check_params(recipe["source"].get("commit") or recipe["source"]["ref"], recipe["params"], recipe.get("params_by_kart"),
                        recipe["source"]["repo"])
-    if where == "ideas" and "cuda" not in recipe.get("sim", {}):
+    if where == "ideas" and "cuda" not in recipe.get("sim", {}) and stacks.of(recipe).get("cuda_kernel"):
         recipe = dict(recipe, sim={**recipe.get("sim", {}), "cuda": True})   # ideas8 has a GPU; without it the MPC (telemetry under pure pursuit too) runs in numpy, ~17x slower
     stem = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-") + re.sub(r"[^A-Za-z0-9_.-]", "_", recipe["name"])
     job_id, n = stem, 1

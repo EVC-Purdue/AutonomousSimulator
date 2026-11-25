@@ -13,7 +13,7 @@ import time
 
 import numpy as np
 
-from harness import clips, config
+from harness import clips, config, stacks
 from runner import jobs, local, store
 
 HOST = os.environ.get("GAUTSCHI_HOST", "manors@gautschi.rcac.purdue.edu")
@@ -42,7 +42,8 @@ RETRY_NODE_MIN = 48   # more leftovers than this retry on the smallest highmem r
 POLL_S = 10.0
 POLL_TIMEOUT_S = 300   # one ssh or rsync of a poll; past it the ControlMaster is closed so the next poll reconnects
 PULL_BATCH = 500   # newly done episodes per pull (about 45 s at the measured 11 per s)
-BASE_FILES = ("docker/Dockerfile.base", "docker/build_chrono.sh", "docker/requirements-stack.txt", "docker/AutoSim.def")
+BASE_FILES = {"humble": ("docker/Dockerfile.base", "docker/build_chrono.sh", "docker/requirements-stack.txt", "docker/AutoSim.def"),
+              "jazzy": ("docker/Dockerfile.base.jazzy", "docker/build_chrono.sh", "docker/requirements-stack.txt", "docker/AutoSim.jazzy.def")}
 LAUNCHER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gautschi_launch.py")
 _syncs = {}
 
@@ -84,16 +85,16 @@ def pull_keys(src, dst, keys, timeout=None, slim=False):
                      f"{HOST}:{src}", dst], timeout=timeout)
 
 
-def base_hash():
+def base_hash(distro="humble"):
     h = hashlib.sha256()
-    for f in BASE_FILES:
+    for f in BASE_FILES[distro]:
         with open(os.path.join(config.ROOT, f), "rb") as fh:
             h.update(fh.read())
     return h.hexdigest()[:12]
 
 
-def sif():
-    return f"AutoSim/images/AutoSim-{base_hash()}.sif"
+def sif(distro="humble"):
+    return f"AutoSim/images/AutoSim-{base_hash(distro)}.sif"
 
 
 def _engine_paths():
@@ -102,26 +103,28 @@ def _engine_paths():
     return list(config.ENGINE_DIRS) + list(config.ENGINE_FILES) + noise
 
 
-def image_engine(engine):
+def image_engine(engine, distro="humble"):
     """Engine hash the SIF computes over the harness synced to AutoSim/engine/<engine>, bound at /opt/sim; '' without a SIF."""
     d = f"AutoSim/engine/{engine}"
-    if ssh(f"test -f {sif()}").returncode != 0:
+    if ssh(f"test -f {sif(distro)}").returncode != 0:
         return ""
     r = ssh(f"cat {d}/ENGINE")
     if r.returncode == 0 and r.stdout.strip() == engine:
         return engine
     push(_engine_paths(), d, cwd=config.ROOT)
-    r = ssh(f"h=$(apptainer exec --cleanenv --bind {d}:/opt/sim:ro {sif()} python3 -c "
+    r = ssh(f"h=$(apptainer exec --cleanenv --bind {d}:/opt/sim:ro {sif(distro)} python3 -c "
             f"'from harness.config import engine_hash; print(engine_hash())') && [ \"$h\" = {engine} ]"
             f" && echo $h > {d}/ENGINE; echo $h")
     return r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
 
 
-def build_stack(ref, h, where="gautschi"):
+def build_stack(ref, h, where="gautschi", repo=stacks.DEFAULT_REPO):
     """colcon build of the recipe's src inside the SIF into AutoSim/stacks/<h> (bound at /ws), cached by .build_ok;
-    plus the CUDA MPC kernel into <h>/mpc_cuda when the ref has one (required on gautschi-gpu), cached by .cuda_ok or .cuda_none."""
+    plus the CUDA MPC kernel into <h>/mpc_cuda when the ref has one (required on gautschi-gpu for a cuda_kernel stack), cached by .cuda_ok or .cuda_none."""
     d = f"AutoSim/stacks/{h}"
-    gpu = where == "gautschi-gpu"
+    prof = stacks.load(repo)
+    distro = prof["ros_distro"]
+    gpu = where == "gautschi-gpu" and prof.get("cuda_kernel", False)
     if ssh(f"test -f {d}/.build_ok").returncode == 0 and (ssh(f"test -f {d}/.cuda_ok").returncode == 0 or
                                                           not gpu and ssh(f"test -f {d}/.cuda_none").returncode == 0):
         return d
@@ -133,11 +136,11 @@ def build_stack(ref, h, where="gautschi"):
         else:
             root = tmp
             for part in ("src", "cuda"):
-                archive = subprocess.run(["git", "-C", local.AK_REPO, "archive", h, part], capture_output=True)
+                archive = subprocess.run(["git", "-C", local.repo_dir(repo), "archive", h, part], capture_output=True)
                 if archive.returncode == 0:
                     subprocess.run(["tar", "-x", "-C", tmp], input=archive.stdout, check=True)
         steps = [lambda: push(["src"], d, cwd=root),
-                 lambda: ssh(f"apptainer exec --cleanenv --bind {d}:/ws {sif()} bash -lc 'source /opt/ros/humble/setup.bash"
+                 lambda: ssh(f"apptainer exec --cleanenv --bind {d}:/ws {sif(distro)} bash -lc 'source /opt/ros/{distro}/setup.bash"
                              f" && cd /ws && rm -rf build install && colcon build' && touch {d}/.build_ok")]
         has_cuda = os.path.exists(os.path.join(root, "cuda", "mpc_cuda.cu"))
         if gpu and not has_cuda:
@@ -146,7 +149,7 @@ def build_stack(ref, h, where="gautschi"):
         if has_cuda:   # CPU nodes load it too, for the native iLQR solve
             steps += [lambda: push(["cuda"], d, cwd=root),
                       lambda: ssh(f"mkdir -p {d}/mpc_cuda && apptainer exec --cleanenv --bind {CUDA}:/usr/local/cuda"
-                                  f" {sif()} /usr/local/cuda/bin/nvcc -DLIBRARY -O3 -arch={CUDA_ARCH} --shared"
+                                  f" {sif(distro)} /usr/local/cuda/bin/nvcc -DLIBRARY -O3 -arch={CUDA_ARCH} --shared"
                                   f" -Xcompiler -fPIC -cudart static -o {d}/mpc_cuda/libmpc_cuda.so {d}/cuda/mpc_cuda.cu"
                                   f" -I {d}/cuda && touch {d}/.cuda_ok")]
         else:
@@ -209,7 +212,7 @@ def chunks(episodes, tier, where="gautschi"):
     return parts
 
 
-def sbatch_script(jid, attempt, tier, episodes, stack, engine, where="gautschi", name=None, after=None, retry=None):
+def sbatch_script(jid, attempt, tier, episodes, stack, engine, where="gautschi", name=None, after=None, retry=None, distro="humble"):
     """name marks a chunk: its own job name, --time CHUNK_TIME_X x the estimate, and --dependency afterany on after."""
     retry = attempt > 0 if retry is None else retry
     w = workers(tier if not retry else "smoke", len(episodes), where)
@@ -225,7 +228,7 @@ def sbatch_script(jid, attempt, tier, episodes, stack, engine, where="gautschi",
             f"-J {name or f'AutoSim-{tier}' + ('-gpu' if gpu else '')} --comment {jid} -o {rdir}/slurm-%j.out\n"
             f"W=/dev/shm/AutoSim-$SLURM_JOB_ID\ntrap 'rm -rf \"$W\"' EXIT\n"
             f"python3 $HOME/{rdir}/gautschi_launch.py --episodes $HOME/{rdir}/episodes.json"
-            f" --out {OUT}/{jid} --sif $HOME/{sif()} --engine $HOME/AutoSim/engine/{engine}"
+            f" --out {OUT}/{jid} --sif $HOME/{sif(distro)} --engine $HOME/AutoSim/engine/{engine} --distro {distro}"
             f" --stack $HOME/{stack} --workers {w} --work $W --timeline $HOME/{rdir}/timeline.jsonl"
             f" --done $HOME/{rdir}/done.txt{gpus}\n")
 
@@ -315,7 +318,8 @@ def submit(episodes, stack, jid):
         with open(os.path.join(d, "sbatch.sh"), "w") as f:
             f.write(sbatch_script(jid, attempt, job["tier"], eps, stack, engine, job["where"], retry=retry,
                                   name=f"AutoSim-{job['tier']}-{slug}-{n + 1}" if len(parts) > 1 else None,
-                                  after=sids[n - CONCURRENT] if n >= CONCURRENT else None))
+                                  after=sids[n - CONCURRENT] if n >= CONCURRENT else None,
+                                  distro=stacks.of(job["recipe"])["ros_distro"]))
         with open(LAUNCHER) as src, open(os.path.join(d, "gautschi_launch.py"), "w") as f:
             f.write(src.read())
         rdir = f"AutoSim/jobs/{jid}/{attempt}"

@@ -571,9 +571,15 @@ function updateEst() {
   F("est-c").textContent = S.where === "modal" ? "$" + Math.max(t.cost_usd, 0.01).toFixed(2) : "$0";
 }
 
+function defaultRef() { return F("f-repo").value === "AutonomousKart" ? S.meta.default_ref : "main"; }
+function setRefs() {
+  const s = (S.meta.stacks || {})[F("f-repo").value];
+  F("refs").replaceChildren(...[defaultRef(), ...((s && s.refs) || [])].filter(Boolean).map((r) => h("option", { value: r })));
+}
+
 function openPanel() {
   panel.hidden = false;
-  if (!F("f-ref").value) F("f-ref").value = S.meta.default_ref;
+  if (!F("f-ref").value) F("f-ref").value = defaultRef();
   F("f-ref").scrollLeft = F("f-ref").scrollWidth;
   try { if (!F("f-user").value) F("f-user").value = localStorage.getItem("evc.user") || ""; } catch (e) { /* storage blocked */ }
   panel.querySelector('.field[data-f="password"]').hidden = !S.meta.password;
@@ -584,11 +590,11 @@ function closePanel() { panel.hidden = true; }
 
 async function submit() {
   const params = checkParams();
-  const body = { recipe_name: F("f-recipe").value, ref: F("f-ref").value, params: params === undefined ? F("f-params").value : params,
+  const body = { recipe_name: F("f-recipe").value, repo: F("f-repo").value, ref: F("f-ref").value, params: params === undefined ? F("f-params").value : params,
     tier: S.tier, where: S.where, user: F("f-user").value, notes: F("f-notes").value, password: F("f-pass").value };
   const rec = S.meta.recipes.find((x) => x.name === body.recipe_name) || S.meta.recipes.find((x) => x.name.toLowerCase() === body.recipe_name.trim().toLowerCase());
   if (rec && rec.sim) body.sim = rec.sim;   // sim options (CUDA, canaries) come only from a config recipe
-  for (const f of ["recipe_name", "ref", "user", "tier", "where", "password"]) fieldError(f, null);
+  for (const f of ["recipe_name", "repo", "ref", "user", "tier", "where", "password"]) fieldError(f, null);
   const r = await U.api("/api/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (!r.ok) {
     for (const [f, m] of Object.entries((r.body && r.body.errors) || {})) fieldError(f, m);
@@ -606,6 +612,7 @@ function wirePanel() {
   F("panel-close").addEventListener("click", closePanel);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !panel.hidden) closePanel(); });
   F("f-params").addEventListener("input", () => { S.paramsTouched = true; checkParams(); });
+  F("f-repo").addEventListener("change", () => { setRefs(); F("f-ref").value = defaultRef(); });
   F("f-ref").addEventListener("blur", () => { F("f-ref").scrollLeft = F("f-ref").scrollWidth; });
   F("f-recipe").addEventListener("input", () => {
     fieldError("recipe_name", null);
@@ -613,6 +620,8 @@ function wirePanel() {
     const r = S.meta.recipes.find((x) => x.name === val) || S.meta.recipes.find((x) => x.name.toLowerCase() === val.trim().toLowerCase());
     if (r && !S.paramsTouched) {
       F("f-params").value = JSON.stringify(r.params, null, 2);
+      F("f-repo").value = r.source.repo;
+      setRefs();
       if (!r.source.ref.startsWith("worktree:") || S.meta.worktrees) F("f-ref").value = r.source.ref;   // a server without the worktrees keeps the git ref
       F("f-ref").scrollLeft = F("f-ref").scrollWidth;
       if (!F("f-notes").value) F("f-notes").value = r.notes;
@@ -646,7 +655,9 @@ function wirePanel() {
   const [meta] = await Promise.all([U.api("/api/meta"), poll()]);
   S.meta = meta.ok ? meta.body : { recipes: [], tiers: null, conditions: [], default_ref: "" };
   F("recipes").replaceChildren(...S.meta.recipes.map((r) => h("option", { value: r.name })));
-  F("refs").replaceChildren(...[S.meta.default_ref, ...(S.meta.refs || [])].filter(Boolean).map((r) => h("option", { value: r })));
+  const repos = Object.entries(S.meta.stacks || {}).sort((a, b) => a[1].label.localeCompare(b[1].label));
+  F("f-repo").replaceChildren(...repos.map(([r, s]) => h("option", { value: r, text: s.label })));
+  setRefs();
   updateEst();
   const qs = new URLSearchParams(location.search);
   for (const k of U.SLICE) if (qs.get(k)) S.slice[k] = qs.get(k);

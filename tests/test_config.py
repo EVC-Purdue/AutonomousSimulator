@@ -85,7 +85,7 @@ def test_smoke_uncapped_dev_line_keys_are_shared_with_dev(monkeypatch):
 
 def _tree(root):
     for p in ("harness/a.py", "harness/__pycache__/a.pyc", "data/noise/fit.json", "data/noise/raw/bag.bin",
-              "data/clips/c1.json", "docker/Dockerfile", "docker/Dockerfile.base", "docker/build_chrono.sh",
+              "data/clips/c1.json", "docker/Dockerfile", "docker/Dockerfile.base", "docker/Dockerfile.base.jazzy", "docker/build_chrono.sh",
               "docker/requirements-stack.txt", "docs/notes.txt"):
         f = root / p
         f.parent.mkdir(parents=True, exist_ok=True)

@@ -5,6 +5,7 @@ import threading
 import time
 
 import numpy as np
+import pytest
 
 from harness import clips, config, tiers
 from runner import gautschi, gautschi_launch, jobs, local, modal_app, store
@@ -455,3 +456,20 @@ def test_every_episode_of_a_slimmed_remote_run_keeps_its_plan(tmp_results, fake_
     recs = store.episodes(jid)
     assert jobs.get(jid)["status"] == "done" and len(recs) == 15
     assert all(store.read_plan(r["key"]) == [{"t": 1.0, "planner": 2, "xy": [0.0, 0.0, 1.0, 0.5]}] for r in recs)
+
+
+def test_each_distro_has_its_own_sif_and_setup():
+    assert gautschi.sif("jazzy") != gautschi.sif() == gautschi.sif("humble")
+    c = gautschi_launch.worker_cmd(0, "/w", "/o", "/e.json", "s.sif", "/e", "/s", distro="jazzy")
+    assert c[-1].startswith("source /opt/ros/jazzy/setup.bash")
+
+
+def test_a27_builds_from_its_own_clone_without_the_cuda_kernel(tmp_results, gautschi_remote, monkeypatch, tmp_path):
+    (tmp_path / "src").mkdir()
+    seen = []
+    monkeypatch.setattr(local, "_wt_dir", lambda ref: seen.append(ref) or str(tmp_path))
+    assert gautschi.build_stack("worktree:/a27", "abc", "gautschi-gpu", "A27") == "AutoSim/stacks/abc"
+    build = next(a[-1] for a in gautschi_remote.calls if "colcon build" in a[-1])
+    assert gautschi.sif("jazzy") in build and "/opt/ros/jazzy/setup.bash" in build
+    with pytest.raises(local.BuildError):
+        gautschi.build_stack("worktree:/a26", "abd", "gautschi-gpu")

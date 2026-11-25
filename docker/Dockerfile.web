@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends git rsync opens
     && rm -rf /var/lib/apt/lists/* && git config --system --add safe.directory '*'
 RUN pip install --no-cache-dir flask numpy jsonschema pyyaml huggingface_hub gunicorn
 WORKDIR /app
-COPY docker/Dockerfile docker/Dockerfile.base docker/build_chrono.sh docker/requirements-stack.txt docker/AutoSim.def docker/
+COPY docker/Dockerfile docker/Dockerfile.base docker/Dockerfile.base.jazzy docker/build_chrono.sh docker/requirements-stack.txt docker/AutoSim.def docker/AutoSim.jazzy.def docker/
 COPY data/noise data/noise
 COPY data/cad data/cad
 COPY harness harness

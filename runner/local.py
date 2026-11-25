@@ -384,8 +384,8 @@ class Runner:
         ref = job["recipe"]["source"]["ref"]
         repo = stacks.repo_of(job["recipe"])
         started = store.now()
-        if repo != stacks.DEFAULT_REPO and job["where"] != "local":
-            self._build_failed(jid, text=f"{repo} stacks run on the local runner only; {job['where']} has no {stacks.load(repo)['image']} image\n")
+        if repo != stacks.DEFAULT_REPO and job["where"] in ("modal", "modal-gpu"):
+            self._build_failed(jid, text=f"{repo} stacks do not run on {job['where']}: it has no {stacks.load(repo)['image']} image\n")
             return
         try:
             h = job["recipe"]["source"].get("commit") or stack_hash(ref, repo)   # the commit resolved at submit
@@ -420,14 +420,14 @@ class Runner:
                                           or 1) if gpu else (min(len(modal_app.pack(new)), modal_app.MAX_CONTAINERS) or 1) if remote
                   else gautschi.workers(job["tier"], len(new), job["where"]) if hpc else self.workers)
         if new:
-            image = stacks.load(repo)["image"]
-            baked = None if remote else gautschi.image_engine(engine) if hpc else image_engine(image)
+            image, distro = stacks.load(repo)["image"], stacks.load(repo)["ros_distro"]
+            baked = None if remote else gautschi.image_engine(engine, distro) if hpc else image_engine(image)
             if not remote and baked != engine:
-                self._build_failed(jid, text=f"rebuild {gautschi.sif() if hpc else image}: its engine {baked[:12] or 'none'}"
+                self._build_failed(jid, text=f"rebuild {gautschi.sif(distro) if hpc else image}: its engine {baked[:12] or 'none'}"
                                              f" differs from this checkout's {engine[:12]}\n")
                 return
             try:
-                volume = modal_app.stack_src(ref, h, gpu) if remote else gautschi.build_stack(ref, h, job["where"]) if hpc \
+                volume = modal_app.stack_src(ref, h, gpu) if remote else gautschi.build_stack(ref, h, job["where"], repo) if hpc \
                     else build_stack(ref, h, repo)
             except BuildError as e:
                 self._build_failed(jid, src=e.log)
@@ -436,7 +436,7 @@ class Runner:
                 raise Cancelled(jid)
             self._set(jid, status="running")
             for attempt in (0, 1):
-                if hpc and attempt == 1 and len(new) <= gautschi.RETRY_NODE_MIN and importlib.util.find_spec("modal"):   # without modal (the web image) they retry on the host
+                if hpc and attempt == 1 and repo == stacks.DEFAULT_REPO and len(new) <= gautschi.RETRY_NODE_MIN and importlib.util.find_spec("modal"):   # without modal (the web image) they retry on the host
                     done, errors = self._retry_on_modal(jid, ref, h, new, idx, done, errors)
                     break
                 batch = modal_app.fetch_gpu if gpu else modal_app.fetch if remote else gautschi.fetch if hpc else run_batch

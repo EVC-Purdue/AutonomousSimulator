@@ -8,7 +8,7 @@ import subprocess
 import threading
 import time
 
-RUN = ("source /opt/ros/humble/setup.bash && source /ws/install/setup.bash"
+RUN = ("source /opt/ros/{distro}/setup.bash && source /ws/install/setup.bash"
        " && python3 -m simnode.batch /batch.json /out")
 CUDA_LIB = "/ws/mpc_cuda/libmpc_cuda.so"   # built per stack by runner/gautschi.build_stack for gautschi-gpu
 SAMPLE_S = 15
@@ -16,7 +16,7 @@ STAGGER_S = 0.25   # between worker starts: the dev job's one error was a stack 
 EPISODE_TIMEOUT_S = 1200   # about 4x the slowest lap; a killed episode has no outcome and is retried by the host
 
 
-def worker_cmd(i, work, out, ep, sif, engine, stack, gpu=None):
+def worker_cmd(i, work, out, ep, sif, engine, stack, gpu=None, distro="humble"):
     """Private /tmp, HOME, /dev/shm, IPC, PIDs and loopback per episode, plus a distinct ROS_DOMAIN_ID per worker;
     gpu (a host CUDA device) adds the driver and the stack's CUDA MPC kernel."""
     cuda = ["--nv", "--env", f"CUDA_VISIBLE_DEVICES={gpu}", "--env", f"MPC_CUDA_LIB={CUDA_LIB}"] if gpu is not None else []
@@ -25,7 +25,7 @@ def worker_cmd(i, work, out, ep, sif, engine, stack, gpu=None):
     return ["apptainer", "exec", *cuda, "--contain", "--cleanenv", "--ipc", "--pid", "--net", "--network", "none", "--workdir", work,
             "--env", f"ROS_DOMAIN_ID={i + 1}", "--env", "ROS_HOME=/tmp/ros", "--env", "TMPDIR=/tmp",
             "--bind", f"{engine}:/opt/sim:ro", "--bind", f"{stack}:/ws:ro", "--bind", f"{out}:/out",
-            "--bind", f"{ep}:/batch.json:ro", sif, "bash", "-lc", RUN]
+            "--bind", f"{ep}:/batch.json:ro", sif, "bash", "-lc", RUN.format(distro=distro)]
 
 
 def parse_smi(text):
@@ -53,6 +53,7 @@ def main(argv=None):
         p.add_argument("--" + a, required=True)
     p.add_argument("--workers", type=int, required=True)
     p.add_argument("--gpus", type=int, default=0)
+    p.add_argument("--distro", default="humble")
     a = p.parse_args(argv)
     with open(a.episodes) as f:
         q = queue.Queue()
@@ -82,7 +83,7 @@ def main(argv=None):
             gpu = devs[i % len(devs)] if devs and e["resolved"].get("recipe", {}).get("sim", {}).get("cuda") else None
             limit = EPISODE_TIMEOUT_S * max(1, e["resolved"]["scenario"].get("laps", 1))   # per lap: 5-lap episodes run 5x longer
             try:
-                rc = subprocess.run(worker_cmd(i, work, stage, ep, a.sif, a.engine, a.stack, gpu), stdout=subprocess.DEVNULL,
+                rc = subprocess.run(worker_cmd(i, work, stage, ep, a.sif, a.engine, a.stack, gpu, a.distro), stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL, timeout=limit).returncode
             except subprocess.TimeoutExpired:
                 rc = "timeout"

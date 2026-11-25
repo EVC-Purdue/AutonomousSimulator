@@ -9,7 +9,7 @@ from harness.seeds import episode_seed
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIGS = os.path.join(ROOT, "configs")
 ENGINE_DIRS = ("harness", "simnode", "chrono", "configs", "tracks", "data/clips")   # what docker/Dockerfile copies
-ENGINE_FILES = ("docker/Dockerfile", "docker/Dockerfile.base", "docker/build_chrono.sh", "docker/requirements-stack.txt")
+ENGINE_FILES = ("docker/Dockerfile", "docker/Dockerfile.base", "docker/Dockerfile.base.jazzy", "docker/build_chrono.sh", "docker/requirements-stack.txt")
 HOST_ONLY = ("harness/metrics.py",)   # copied into the image but never imported there; scoring edits keep the cache
 _engine = {}
 

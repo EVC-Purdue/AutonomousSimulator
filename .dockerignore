@@ -9,6 +9,7 @@
 !data/clips
 !docker/Dockerfile
 !docker/Dockerfile.base
+!docker/Dockerfile.base.jazzy
 !docker/build_chrono.sh
 !docker/requirements-stack.txt
 **/__pycache__

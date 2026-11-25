@@ -11,7 +11,9 @@
 !data/cad/*.stl
 !docker/Dockerfile
 !docker/Dockerfile.base
+!docker/Dockerfile.base.jazzy
 !docker/build_chrono.sh
 !docker/requirements-stack.txt
 !docker/AutoSim.def
+!docker/AutoSim.jazzy.def
 **/__pycache__

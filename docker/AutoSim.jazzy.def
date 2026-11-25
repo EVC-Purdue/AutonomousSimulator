@@ -1,0 +1,23 @@
+Bootstrap: docker
+From: ros:jazzy-ros-base
+
+# Apptainer twin of docker/Dockerfile.base.jazzy for Gautschi: Chrono comes prebuilt (x86-64, CH_USE_SIMD=OFF) as chrono-jazzy.tgz,
+# the /usr/local install of build_chrono.sh exported from the Modal image; the harness dirs are bound at /opt/sim at run time
+# %files go to /opt/build, not /tmp: the build binds the host /tmp over it during %post
+%files
+    requirements-stack.txt /opt/build/requirements-stack.txt
+    chrono-jazzy.tgz /opt/build/chrono-jazzy.tgz
+
+%environment
+    export PYTHONPATH=/opt/sim:/usr/local/lib/python3.12/dist-packages
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build git \
+        libeigen3-dev swig python3-dev python3-pip python3-numpy socat can-utils procps \
+        ros-jazzy-nav-msgs ros-jazzy-sensor-msgs ros-jazzy-tf2-ros ros-jazzy-rosbag2-storage-mcap \
+        python3-colcon-common-extensions && rm -rf /var/lib/apt/lists/*
+    PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --no-cache-dir -r /opt/build/requirements-stack.txt
+    tar xzf /opt/build/chrono-jazzy.tgz -C / && rm -r /opt/build && ldconfig
+    python3 -c "import pychrono, pychrono.vehicle; print('pychrono ok', pychrono.__file__)"
+    mkdir -p /opt/sim /ws /out

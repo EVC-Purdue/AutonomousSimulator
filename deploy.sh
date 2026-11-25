@@ -8,10 +8,11 @@ URL=http://127.0.0.1:5060/
 RESULTS_PATH="$HOME/autonomoussim/results"
 SECRETS_PATH="$HOME/.autonomoussim-secrets"
 AK_PATH="$HOME/AutonomousKart"
+A27_PATH="$HOME/A27-mirror"
 
 echo "Checking host paths..."
 mkdir -p "$RESULTS_PATH"
-for p in "$SECRETS_PATH/env" "$SECRETS_PATH/ssh" "$AK_PATH"; do
+for p in "$SECRETS_PATH/env" "$SECRETS_PATH/ssh" "$AK_PATH" "$A27_PATH"; do
   if [ ! -e "$p" ]; then
     echo "Missing $p (see the Deploy section of README.md)"
     exit 1
@@ -45,9 +46,11 @@ docker run -d \
   --env-file "$SECRETS_PATH/env" \
   -e AUTONOMOUS_SIM_RESULTS=/data/results \
   -e AUTONOMOUS_KART_REPO=/repos/AutonomousKart \
+  -e A27_REPO=/repos/A27 \
   -e AUTONOMOUS_SIM_HF_UPLOAD="$HF_UPLOAD" \
   -v "$RESULTS_PATH:/data/results" \
   -v "$AK_PATH:/repos/AutonomousKart" \
+  -v "$A27_PATH:/repos/A27" \
   -v "$SECRETS_PATH/ssh:/root/.ssh" \
   "$IMAGE_REF"
 

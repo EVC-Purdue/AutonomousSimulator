@@ -145,7 +145,7 @@ def _line_xy(name):
 def _row(job):
     p = jobs.progress(job["id"]) if job["status"] in jobs.ACTIVE else {"eta_s": None}
     return {"id": job["id"], "recipe": job["recipe"]["name"], "ref": job["recipe"]["source"]["ref"],
-            "stack": stacks.of(job["recipe"])["label"],
+            "stack": stacks.label(job["recipe"]),
             "tier": job["tier"], "user": job["user"], "notes": job["notes"], "status": job["status"],
             "where": job["where"], "submitted_at": job["submitted_at"], "started_at": job["started_at"],
             "finished_at": job["finished_at"], "done": job["done"], "total": job["total"], "eta_s": p["eta_s"]}
@@ -412,6 +412,8 @@ def _parse_submit(d):
     for f in ("recipe_name", "ref", "user"):
         if not isinstance(d.get(f), str) or not d[f].strip():
             errors[f] = "Required"
+    if (d.get("repo") or stacks.DEFAULT_REPO) not in stacks.repos():
+        errors["repo"] = " or ".join(stacks.repos())
     if not isinstance(d.get("notes") or "", str):
         errors["notes"] = "Must be text"
     tier, where = d.get("tier"), d.get("where", "local")
@@ -449,7 +451,7 @@ def _worktree_ok(ref):
 
 
 def _smoked(recipe):
-    key = lambda r: (r["source"]["ref"], r["source"].get("commit"), r.get("params", {}), r.get("sim", {}))  # noqa: E731
+    key = lambda r: (stacks.repo_of(r), r["source"]["ref"], r["source"].get("commit"), r.get("params", {}), r.get("sim", {}))  # noqa: E731
     return any(j["tier"] == "smoke" and j["status"] == "done" and key(j["recipe"]) == key(recipe)
                for j in jobs.list_jobs())
 
@@ -501,7 +503,7 @@ def create_app():
     def api_job(job_id):
         job = _job_or_404(job_id)
         sl = _slice()
-        build = lambda: {"job": dict(job, stack=stacks.of(job["recipe"])["label"]), "progress": jobs.progress(job_id), "headline": dict(jobs.headline(job_id, sl), loc_rms=_loc_head(job_id, sl)),  # noqa: E731
+        build = lambda: {"job": dict(job, stack=stacks.label(job["recipe"])), "progress": jobs.progress(job_id), "headline": dict(jobs.headline(job_id, sl), loc_rms=_loc_head(job_id, sl)),  # noqa: E731
                          "breakdown": _breakdown(job_id, sl), "options": jobs.options([job_id], sl)}
         if job["status"] in jobs.ACTIVE + ("queued",):
             return jsonify(build())
@@ -695,12 +697,12 @@ def create_app():
         rate = CORES * CORE_S + GIB * GIB_S
         tier_info = {}
         for t in TIERS:
-            memo = "tier_n:" + json.dumps(config.load("tiers", t), sort_keys=True)   # expanding large is 32k episodes: once per tier config
             try:
+                memo = "tier_n:" + json.dumps(config.load("tiers", t), sort_keys=True)   # expanding large is 32k episodes: once per tier config
                 if memo not in _cache:
                     _cache[memo] = len(_count_tier(t, dummy))   # counted, not resolved
                 n = _cache[memo]
-            except Exception:   # clips absent and not fetchable
+            except Exception:   # tier config or clips absent and not fetchable
                 tier_info[t] = {"episodes": None, "cost_usd": None}
                 continue
             tier_info[t] = {"episodes": n, "cost_usd": round(n * wall * rate, 4)}
@@ -709,6 +711,7 @@ def create_app():
             tier_info[t]["rows"] = len({j["recipe"]["name"] for j in done if j["tier"] == t and j["status"] == "done"})
         ref = default["source"]["ref"] if default else ""
         return jsonify({"recipes": recipes, "default_ref": ref if _worktree_ok(ref) else "main", "refs": local.recent_refs(),
+                        "stacks": {r: {"label": stacks.load(r)["label"], "refs": local.recent_refs(repo=r)} for r in stacks.repos()},
                         "worktrees": any(r["source"]["ref"].startswith("worktree:") and _worktree_ok(r["source"]["ref"]) for r in recipes),
                         "password": bool(os.environ.get("AUTONOMOUS_SIM_PASSWORD")),
                         "tiers": tier_info, "default_tier": _default_tier(tier_info), "conditions": conditions()})

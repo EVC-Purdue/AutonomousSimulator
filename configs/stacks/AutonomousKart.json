@@ -5,6 +5,7 @@
  "ros_distro": "humble",
  "image": "evc-sim:dev",
  "interface": "device",
+ "cuda_kernel": true,
  "launch": "bringup_simdev.launch.py",
  "launch_args": {},
  "sim_support": "src/autonomous_kart/autonomous_kart/launch/bringup_simdev.launch.py",

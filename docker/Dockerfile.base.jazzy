@@ -1,0 +1,12 @@
+# ROS 2 Jazzy, the A27 stack's Python deps, and PyChrono 10.0.0 built for Python 3.12
+FROM ros:jazzy-ros-base
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build git \
+    libeigen3-dev swig python3-dev python3-pip python3-numpy socat can-utils procps \
+    ros-jazzy-nav-msgs ros-jazzy-sensor-msgs ros-jazzy-tf2-ros ros-jazzy-rosbag2-storage-mcap \
+    python3-colcon-common-extensions && rm -rf /var/lib/apt/lists/*
+COPY requirements-stack.txt /tmp/
+RUN PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --no-cache-dir -r /tmp/requirements-stack.txt
+COPY build_chrono.sh /tmp/
+RUN sed -i 's/3\.10/3.12/g' /tmp/build_chrono.sh && mkdir -p /usr/local/lib/python3.12/dist-packages && bash /tmp/build_chrono.sh
+ENV PYTHONPATH=/usr/local/lib/python3.12/dist-packages

@@ -90,3 +90,11 @@ def test_repo_dir_and_ros_cmd():
     assert local.repo_dir("A27").endswith("A27")
     assert local.ros_cmd(local.RUN_CMD, "jazzy").startswith("source /opt/ros/jazzy/setup.bash")
     assert "humble" not in local.ros_cmd(local.BUILD_CMD, "jazzy")
+
+
+def test_job_label_follows_the_recipe_name_then_the_repo():
+    a26, a27 = {"repo": "AutonomousKart", "ref": "main"}, {"repo": "A27", "ref": "main"}
+    assert stacks.label({"name": "A27 RL (Small 64x64)", "source": a26}) == "A27"
+    assert stacks.label({"name": "A26 MPC stack", "source": a26}) == "A26"
+    assert stacks.label({"name": "mpc-h40", "source": a26}) == "A26"
+    assert stacks.label({"name": "pp-lateral", "source": a27}) == "A27"
