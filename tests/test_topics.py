@@ -98,3 +98,17 @@ def test_job_label_follows_the_recipe_name_then_the_repo():
     assert stacks.label({"name": "A26 MPC stack", "source": a26}) == "A26"
     assert stacks.label({"name": "mpc-h40", "source": a26}) == "A26"
     assert stacks.label({"name": "pp-lateral", "source": a27}) == "A27"
+
+
+def test_plan_data_feeds_record_plan_with_and_without_costs():
+    from types import SimpleNamespace as NS
+    pts = [NS(x=0.0, y=0.0), NS(x=1.0, y=0.0), NS(x=2.0, y=0.0)]
+    bare = NS(points=pts, cost_terms=[], step_costs=[], best_cost=0.0, cost_field_start=0.0, cost_field_step=0.0, cost_field=[])
+    plans = []
+    assert episode.record_plan(plans, 10.0, topics.plan_data(bare))
+    assert plans[0] == {"t": 10.0, "planner": 1, "xy": [0.0, 0.0, 1.0, 0.0, 2.0, 0.0]}
+    costed = NS(points=pts, cost_terms=["d", "speed"], step_costs=[1.0, 2.0, 3.0, 1.5], best_cost=7.5,
+                cost_field_start=-0.1, cost_field_step=0.1, cost_field=[4.0, 0.0, 4.0])
+    assert episode.record_plan(plans, 10.1, topics.plan_data(costed))
+    assert plans[1]["planner"] == 2 and plans[1]["cost"] == {"best": 7.5, "steps": [[1.0, 2.0], [3.0, 1.5]]}
+    assert plans[1]["field"] == {"d0": -0.1, "dd": 0.1, "c": [4.0, 0.0, 4.0]}

@@ -56,12 +56,21 @@ def column_for_steering(steering_rad, wheel_per_column):
     return -math.degrees(steering_rad) / wheel_per_column
 
 
+def plan_data(msg):
+    """kart_interfaces/Plan as pathfinder/plan data in the layout episode.record_plan reads: planner 2 (MPC) with costs, else 1 (pure pursuit)."""
+    n, m = len(msg.points), len(msg.cost_terms)
+    data = [2.0 if m else 1.0, float(n), *(v for p in msg.points for v in (p.x, p.y))]
+    if m:
+        data += [float(m), msg.best_cost, *msg.step_costs, float(len(msg.cost_field)), msg.cost_field_start, msg.cost_field_step, *msg.cost_field]
+    return data
+
+
 class TopicIO:
     """Publishers and subscriptions of the topic-level interface, on the sim's nodes."""
 
-    def __init__(self, pub_node, sub_node, on_cmd, on_brake):
+    def __init__(self, pub_node, sub_node, on_cmd, on_brake, on_plan):
         from geometry_msgs.msg import PoseWithCovarianceStamped
-        from kart_interfaces.msg import DriveCommand, GpsFix, KartTelemetry, ObjectMeasurement, ObjectMeasurementArray
+        from kart_interfaces.msg import DriveCommand, GpsFix, KartTelemetry, ObjectMeasurement, ObjectMeasurementArray, Plan
         from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
         from sensor_msgs.msg import Imu
         from std_msgs.msg import Bool, String
@@ -77,6 +86,7 @@ class TopicIO:
         self.obs_pub = p(ObjectMeasurementArray, "perception/measurements", 10)
         sub_node.create_subscription(DriveCommand, "cmd_drive", on_cmd, qos_profile_sensor_data)
         sub_node.create_subscription(Bool, "mechanical_brake/command", on_brake, qos_profile_sensor_data)
+        sub_node.create_subscription(Plan, "pathfinder/plan", on_plan, qos_profile_sensor_data)
 
     @staticmethod
     def _stamp(msg, t, frame):

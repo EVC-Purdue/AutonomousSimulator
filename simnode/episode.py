@@ -434,7 +434,7 @@ class _Runtime:
                              start_parameter_services=False)
         if self.topic:  # every node clocked at each step, the stack's drivers stood in for over their topics
             self.clock_pubs = {n: self.pub_node.create_publisher(Clock, CLOCK_TOPIC + n, 10) for n in self.profile["nodes"]}
-            self.io = topics.TopicIO(self.pub_node, self.node, self._on_cmd, self._on_brake)
+            self.io = topics.TopicIO(self.pub_node, self.node, self._on_cmd, self._on_brake, self._on_topic_plan)
             from rclpy.qos import qos_profile_sensor_data
             self.node.create_subscription(Odometry, "odom", self._on_odom, qos_profile_sensor_data)
             self.exe = SingleThreadedExecutor()
@@ -508,6 +508,9 @@ class _Runtime:
 
     def _on_plan(self, msg):
         self.intent = list(msg.data)
+
+    def _on_topic_plan(self, msg):
+        self.intent = topics.plan_data(msg)
 
     def _on_tick(self, msg):
         hb = (msg.stamp.sec * 1_000_000_000 + msg.stamp.nanosec, int(msg.frame_id))
